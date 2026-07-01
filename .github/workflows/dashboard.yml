@@ -1,0 +1,41 @@
+name: Update Dashboard
+
+on:
+  schedule:
+    - cron: '0 * * * *'        # every hour, top of the hour (UTC)
+  workflow_dispatch:           # manual "Run workflow" button
+
+permissions:
+  contents: write              # allow committing the updated HTML back
+
+jobs:
+  update-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pandas openpyxl requests
+
+      - name: Run dashboard updater
+        env:
+          SHAREPOINT_URL: ${{ secrets.SHAREPOINT_URL }}
+        run: python dashboard.py
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "Dashboard Bot"
+          git config user.email "actions@github.com"
+          git add index.html || true
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Auto-update dashboard $(date -u '+%Y-%m-%d %H:%M UTC')"
+            git push
+          fi
