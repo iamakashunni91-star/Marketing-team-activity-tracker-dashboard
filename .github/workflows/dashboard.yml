@@ -2,7 +2,8 @@ name: Update Dashboard
 
 on:
   schedule:
-    - cron: '0 * * * *'        # every hour, top of the hour (UTC)
+    - cron: '0 * * * *'        # every hour, top of the hour (UTC) — dashboard refresh
+    - cron: '45 11 * * 1-5'    # 11:45 UTC = 5:15 PM IST, Mon–Fri — daily missing-updates check
   workflow_dispatch:           # manual "Run workflow" button
 
 permissions:
@@ -26,6 +27,9 @@ jobs:
       - name: Run dashboard updater
         env:
           SHAREPOINT_URL: ${{ secrets.SHAREPOINT_URL }}
+          # Turn on the missing-updates check for the 5 PM IST scheduled run,
+          # and also on manual runs (so you can test the email immediately).
+          RUN_MISSING_CHECK: ${{ (github.event.schedule == '45 11 * * 1-5' || github.event_name == 'workflow_dispatch') && '1' || '0' }}
         run: python dashboard.py
 
       - name: Commit and push if changed
@@ -33,9 +37,22 @@ jobs:
           git config user.name "Dashboard Bot"
           git config user.email "actions@github.com"
           git add index.html || true
+          git add missing_yesterday.json || true
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
             git commit -m "Auto-update dashboard $(date -u '+%Y-%m-%d %H:%M UTC')"
             git push
           fi
+
+      # ── Send the missing-updates email ──
+      # Fires on the 5 PM IST schedule, AND on a manual run (for testing).
+      - name: Send missing-updates email
+        if: ${{ github.event.schedule == '45 11 * * 1-5' || github.event_name == 'workflow_dispatch' }}
+        run: python send_missing_email.py
+        env:
+          SMTP_SERVER:   ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT:     ${{ secrets.SMTP_PORT }}
+          SMTP_USER:     ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_TO:      ${{ secrets.EMAIL_TO }}
