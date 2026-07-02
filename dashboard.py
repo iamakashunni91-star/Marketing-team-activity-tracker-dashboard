@@ -407,6 +407,66 @@ def update_html(html_path: str, new_data: dict) -> bool:
 # MAIN
 # ════════════════════════════════════════════════════════════════
 
+# ════════════════════════════════════════════════════════════════
+# MISSING-UPDATES CHECK
+# ════════════════════════════════════════════════════════════════
+# The full expected roster — everyone who should be logging activity.
+# When a new joiner is added to the dashboard, add their exact
+# SharePoint name here too so the compliance check includes them.
+ROSTER = [
+    "Archa Ullas", "Anna Mary", "Gautham S", "Gokul Nath", "Sreejith SL",
+    "Shilpa Sara", "Arun Mahadev", "Rajeswari Menon", "Sneha S", "Fanny Dorris",
+    "Bajan", "Haripriya L", "Naveen PC", "Arun Nath J", "Balavignesh P",
+    "Kulwinder Singh", "Ajay Singh", "Savitha Vasanthan", "Priya Kumari",
+    "Devika Sheeja", "Jofia Joseph", "Seethal vargheese",
+]
+
+
+def check_missing_updates(df_all: pd.DataFrame) -> None:
+    """Check who did NOT log activity for the previous WORKING day.
+
+    Runs once daily (the workflow schedules the evening-IST run). Skips
+    weekends: if the previous calendar day was a weekend, no check is done.
+    Writes missing_yesterday.json for downstream email delivery.
+    """
+    from datetime import timedelta, timezone
+
+    # "Now" in IST (UTC+5:30). We check the day that just ended.
+    ist = timezone(timedelta(hours=5, minutes=30))
+    now_ist = datetime.now(ist)
+    target = (now_ist - timedelta(days=1)).date()   # yesterday, IST
+
+    # Skip if the day we'd be checking is a weekend (Sat=5, Sun=6)
+    if target.weekday() >= 5:
+        log.info(f"Missing-check skipped — {target} was a weekend.")
+        return
+
+    target_iso = target.strftime("%Y-%m-%d")
+
+    # Who logged at least one row dated the target day?
+    logged = set(
+        df_all.loc[df_all['Date'].dt.strftime("%Y-%m-%d") == target_iso, 'Employee name']
+    )
+    missing = [name for name in ROSTER if name not in logged]
+
+    payload = {
+        "checked_on": now_ist.strftime("%Y-%m-%d %H:%M IST"),
+        "for_date": target.strftime("%a, %d %b %Y"),
+        "for_date_iso": target_iso,
+        "total_roster": len(ROSTER),
+        "missing_count": len(missing),
+        "missing_names": missing,
+    }
+    with open("missing_yesterday.json", "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+    if missing:
+        log.info(f"MISSING activity for {payload['for_date']} "
+                 f"({len(missing)}/{len(ROSTER)}): {', '.join(missing)}")
+    else:
+        log.info(f"All {len(ROSTER)} logged activity for {payload['for_date']} ✓")
+
+
 def main():
     start = time.time()
     log.info("=" * 60)
@@ -420,6 +480,12 @@ def main():
         df = pd.read_excel(tmp_excel, sheet_name=SHEET_NAME, header=1)
         df['Employee name'] = df['Employee name'].astype(str).str.strip()
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+
+        # Missing-updates compliance check. This is cheap, so we always run
+        # it and write missing_yesterday.json. Whether an EMAIL is sent is
+        # controlled separately by the workflow (only the 5:15 PM IST run and
+        # manual runs send mail). Weekends are skipped inside the function.
+        check_missing_updates(df.copy())
 
         before = len(df)
         if DATE_END:
