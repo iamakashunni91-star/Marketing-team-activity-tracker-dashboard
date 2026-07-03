@@ -29,7 +29,29 @@ CC_LIST = ["akash.rs@way.com", "kannan.dhananjayan@way.com"]
 
 # Name -> work email. "Bajan" alias included. Naitik/Kiran/Akash excluded as reminder targets.
 NAME_TO_EMAIL = {
-    "Gokul Nath": "iamakashunni91@gmail.com",
+    "Ajay Singh": "ajay.singh@way.com",
+    "Anna Mary": "anna.theresa@way.com",
+    "Archa Ullas": "archa.ullas@way.com",
+    "Arun Mahadev": "arun.mahadev@way.com",
+    "Arun Nath J": "arun.nath@way.com",
+    "Bajan": "bajan.bj@way.com",
+    "Bajan BJ": "bajan.bj@way.com",
+    "Balavignesh P": "balavignesh.p@way.com",
+    "Devika Sheeja": "devika.sheeja@way.com",
+    "Fanny Dorris": "fanny.dorris@way.com",
+    "Gautham S": "gautham.s@way.com",
+    "Gokul Nath": "gokul.g@way.com",
+    "Haripriya L": "haripriya.l@way.com",
+    "Jofia Joseph": "jofia.joseph@way.com",
+    "Kulwinder Singh": "kulwinder.singh@way.com",
+    "Naveen PC": "naveen.pc@way.com",
+    "Priya Kumari": "priya.kumari@way.com",
+    "Rajeswari Menon": "rajeswari.menon@way.com",
+    "Savitha Vasanthan": "savitha.vasanthan@way.com",
+    "Seethal vargheese": "seethal.varghese@way.com",
+    "Shilpa Sara": "shilpa.sam@way.com",
+    "Sneha S": "sneha.subhanath@way.com",
+    "Sreejith SL": "sreejith.sl@way.com",
 }
 
 
@@ -77,7 +99,7 @@ def build_html(name: str, for_date: str) -> str:
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0D1A0F;border-left:4px solid #0BEFBA;border-radius:6px;margin:0 0 22px;">
                 <tr>
                   <td style="padding:14px 18px;font-size:14px;color:#ffffff;font-weight:600;">
-                    Please update the data at the earliest to ensure compliance.
+                    Please update the tracker before 12 PM daily, to ensure compliance in governance and to meet organisational objectives.
                   </td>
                 </tr>
               </table>
@@ -115,7 +137,8 @@ def send_one(smtp, sender, to_email, name, for_date):
     msg.set_content(
         f"Hi {first_name(name)},\n\n"
         f"Your activity log for {for_date} has not been updated in the tracker yet. "
-        f"Please update the data at the earliest to ensure compliance.\n\n"
+        f"Please update the tracker before 12 PM daily, to ensure compliance in "
+        f"governance and to meet organisational objectives.\n\n"
         f"If you have already updated it, kindly disregard this message.\n\n"
         f"— Way Marketing Team"
     )
