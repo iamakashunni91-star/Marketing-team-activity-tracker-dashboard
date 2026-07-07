@@ -1,121 +1,510 @@
 """
-Way.com Marketing Dashboard Updater — GitHub Actions Version
-==============================================================
-This version runs on GitHub's servers (not your laptop).
-It downloads the Excel from a PUBLIC SharePoint "view" link
-(no login needed), rebuilds all task data, and updates the
-embedded JSON inside dashboard.html.
+Marketing Team Activity Dashboard — Data Builder
+=================================================
+Runs hourly via GitHub Actions. Downloads the latest tracker from
+SharePoint, classifies every activity into per-person KPI buckets,
+and updates index.html so the dashboard reflects live data.
 
-This file lives in the root of your GitHub repository.
-GitHub Actions runs it automatically every hour.
+Structure (from director's new format):
+  1. Organic SEO       — SEO + SEO Content
+  2. Omnichannel       — Omnichannel email/content + Social
+  3. Local Marketing   — Priya
+  4. B2B               — B2B email + content + digital
+  5. Cross Functional  — Fanny, Akash, Kiran
+
+Every person has an "Other" KPI catch-all so every logged minute
+is preserved. Dashboard per-person totals always match Excel totals.
 """
 
+import json
+import logging
 import os
 import re
-import json
-import time
-import logging
+import sys
 import tempfile
-from datetime import datetime
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
 import requests
 
-# ════════════════════════════════════════════════════════════════
-# CONFIG
-# ════════════════════════════════════════════════════════════════
-
-# The dashboard file in this repo (relative path — do not change)
-DASHBOARD_HTML = "index.html"
-
-# The PUBLIC SharePoint "anyone with the link can view" URL.
-# This is stored as a GitHub Secret (SHAREPOINT_URL) for security —
-# it is NOT hardcoded here. GitHub injects it as an environment variable.
-SHAREPOINT_URL = os.environ.get("SHAREPOINT_URL", "")
-
-# Which sheet inside the Excel to read
-SHEET_NAME = "Master activity matrix - June"
-
-# Date window: include everything from the program start date onward.
-# No upper cap — as the team adds July, August, etc. rows to the same
-# sheet, they flow into the dashboard automatically. Leadership filters
-# to any custom range (weekly / MTD) using the date picker in the page.
-DATE_START = "2026-06-01"
-DATE_END   = None   # None = no upper limit (include all future dates)
-
-# ════════════════════════════════════════════════════════════════
-# LOGGING
-# ════════════════════════════════════════════════════════════════
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)s  %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s")
 log = logging.getLogger(__name__)
 
+# ═══════════════════════════════════════════════════════════════════════
+# CONFIG
+# ═══════════════════════════════════════════════════════════════════════
+DASHBOARD_HTML = "index.html"
+SHEET_NAME = "Master activity matrix - June"
+DATE_START = "2026-06-01"
+DATE_END = None   # None = no upper limit (include future dates)
 
-# ════════════════════════════════════════════════════════════════
-# STEP 1 — DOWNLOAD EXCEL FROM PUBLIC SHAREPOINT LINK
-# ════════════════════════════════════════════════════════════════
-
-def convert_to_download_url(share_url: str) -> str:
-    """
-    SharePoint 'anyone with the link can view' URLs need '?download=1'
-    appended to force a file download instead of opening the web viewer.
-    """
-    if "download=1" in share_url:
-        return share_url
-    sep = "&" if "?" in share_url else "?"
-    return f"{share_url}{sep}download=1"
+# Stored as a GitHub Secret named SHAREPOINT_URL
+SHAREPOINT_URL = os.environ.get("SHAREPOINT_URL", "")
 
 
-def download_excel() -> Path:
-    if not SHAREPOINT_URL:
-        raise RuntimeError(
-            "SHAREPOINT_URL secret is not set. "
-            "Add it in GitHub repo Settings → Secrets and variables → Actions."
-        )
+# ═══════════════════════════════════════════════════════════════════════
+# ROSTER — team & tab mapping
+# ═══════════════════════════════════════════════════════════════════════
+# Each entry: display name -> {tab, prefix (for HTML data-keys)}
+# "Bajan BJ" rows are normalized to "Bajan" before classification.
+ROSTER = {
+    # Organic SEO tab
+    "Bajan":             {"tab": "seo",   "prefix": "Bajan"},
+    "Haripriya L":       {"tab": "seo",   "prefix": "Haripriya"},
+    "Naveen PC":         {"tab": "seo",   "prefix": "Naveen"},
+    "Arun Nath J":       {"tab": "seo",   "prefix": "ArunNath"},
+    "Gautham S":         {"tab": "seo",   "prefix": "Gautham"},
+    "Gokul Nath":        {"tab": "seo",   "prefix": "Gokul"},
+    "Sreejith SL":       {"tab": "seo",   "prefix": "Sreejith"},
+    "Shilpa Sara":       {"tab": "seo",   "prefix": "Shilpa"},
+    "Arun Mahadev":      {"tab": "seo",   "prefix": "ArunM"},
+    # Omnichannel Marketing tab
+    "Ajay Singh":        {"tab": "omni",  "prefix": "Ajay"},
+    "Kulwinder Singh":   {"tab": "omni",  "prefix": "Kulwinder"},
+    "Savitha Vasanthan": {"tab": "omni",  "prefix": "Savitha"},
+    "Anna Mary":         {"tab": "omni",  "prefix": "Anna"},
+    "Archa Ullas":       {"tab": "omni",  "prefix": "Archa"},
+    "Devika Sheeja":     {"tab": "omni",  "prefix": "Devika"},
+    "Jofia Joseph":      {"tab": "omni",  "prefix": "Jofia"},
+    # Local Marketing tab
+    "Priya Kumari":      {"tab": "local", "prefix": "Priya"},
+    # B2B tab
+    "Balavignesh P":     {"tab": "b2b",   "prefix": "Bala"},
+    "Rajeswari Menon":   {"tab": "b2b",   "prefix": "Raje"},
+    "Sneha S":           {"tab": "b2b",   "prefix": "Sneha"},
+    "Seethal vargheese": {"tab": "b2b",   "prefix": "Seethal"},
+    # Cross Functional tab
+    "Fanny Dorris":      {"tab": "cross", "prefix": "Fanny"},
+    "Akash R S":         {"tab": "cross", "prefix": "Akash"},
+    "Kiran Mathew":      {"tab": "cross", "prefix": "Kiran"},
+}
 
-    download_url = convert_to_download_url(SHAREPOINT_URL)
-    log.info("Downloading Excel from SharePoint public link...")
+# Names in the tracker to exclude from the dashboard entirely.
+EXCLUDED_FROM_DASHBOARD = {"Naitik vyas"}
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/120.0.0.0 Safari/537.36",
-    }
-
-    resp = requests.get(download_url, headers=headers, timeout=60, allow_redirects=True)
-
-    if resp.status_code != 200:
-        raise RuntimeError(f"Download failed — HTTP {resp.status_code}")
-
-    content_type = resp.headers.get("Content-Type", "")
-    if "html" in content_type.lower() and len(resp.content) < 50_000:
-        raise RuntimeError(
-            "Got an HTML page instead of the Excel file. "
-            "Check that the SharePoint link is set to "
-            "'Anyone with the link can view' (not 'People in organization')."
-        )
-
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-    tmp.write(resp.content)
-    tmp.close()
-
-    log.info(f"Downloaded {len(resp.content)/1024:.1f} KB")
-    return Path(tmp.name)
+# Roster used ONLY for the daily 12 PM missing-updates email.
+# Deliberately excludes Akash & Kiran per requirements.
+EMAIL_ROSTER = [
+    "Archa Ullas", "Anna Mary", "Gautham S", "Gokul Nath", "Sreejith SL",
+    "Shilpa Sara", "Arun Mahadev", "Rajeswari Menon", "Sneha S", "Fanny Dorris",
+    "Bajan", "Haripriya L", "Naveen PC", "Arun Nath J", "Balavignesh P",
+    "Kulwinder Singh", "Ajay Singh", "Savitha Vasanthan", "Priya Kumari",
+    "Devika Sheeja", "Jofia Joseph", "Seethal vargheese",
+]
 
 
-# ════════════════════════════════════════════════════════════════
-# STEP 2 — COMPUTE TASK DATA (same logic as the local version)
-# ════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
+# KPI DEFINITIONS per person
+# ═══════════════════════════════════════════════════════════════════════
+# Each person has an ordered list of KPI buckets. Each bucket has a
+# key, display label and keyword patterns. Order matters — first match
+# wins. Every person automatically gets an "Other" catch-all at the end.
+#
+# HTML data-keys: f"{prefix}_{bucket_key}"
+KPI_BUCKETS = {
+    # ─── ORGANIC SEO ─────────────────────────────────────────────────
+    "Bajan": [
+        ("audit",      "Technical Audits",
+         ["audit", "screaming frog", "seo4ajax", "schema", "meta brand",
+          "source code", "crawl", "sitemap"]),
+        ("ticket",     "Ticket Management",
+         ["ticket", "ipull", "jira", "prioritization"]),
+        ("analysis",   "Lot/City/Page Analysis",
+         ["lot level", "city", "page level", "page wise", "traffic",
+          "revenue review", "rate field", "keyword", "url", "linking",
+          "projection", "monthly parking", "gsc", "vendor",
+          "content optimization", "fifa"]),
+        ("reporting",  "Reporting",
+         ["weekly report", "weekly reporting", "dashboard", "deck", "ppt",
+          "leadership", "anand", "binu", "status"]),
+        ("meetings",   "Meetings & Standups",
+         ["standup", "meeting", "sync", "syncup", "all hands", "call",
+          "alignment"]),
+    ],
+    "Haripriya L": [
+        ("audit",      "Source Code Audits",
+         ["source code audit", "audit", "schema", "seo qa", "qa validation",
+          "product schema", "pre-launch", "post-launch", "post-deployment"]),
+        ("content_review", "SEO Content Reviews",
+         ["content review", "seo content review", "content deployment",
+          "content team discussion", "port of", "internal linking",
+          "interlinks", "content qa"]),
+        ("keyword",    "Keyword Research",
+         ["keyword", "meta title", "meta detail", "meta tag",
+          "keyword ranking", "keyword position", "ranking analysis"]),
+        ("reporting",  "Projections & Reports",
+         ["projection", "forecast", "deck", "dashboard", "weekly review",
+          "weekly report", "reporting", "insights", "growth projection",
+          "performance monitoring", "tracker", "documentation",
+          "improvement analysis", "ctr improvement", "recommendations",
+          "sitemap update", "crawlability", "ticket created"]),
+        ("meetings",   "Meetings",
+         ["meeting", "standup", "stand-up", "stakeholder", "review meeting",
+          "team coordination", "sync", "alignment", "walkthrough",
+          "follow-up", "followup"]),
+    ],
+    "Naveen PC": [
+        ("crawl",      "Crawl & Screaming Frog",
+         ["screaming frog", "crawl", "seo4ajax", "cloudflare", "nginx",
+          "crawlability"]),
+        ("tickets",    "Ticket Follow-ups",
+         ["ticket", "implementation", "coordinated seo ticket",
+          "follow-up", "follow up"]),
+        ("audit",      "Backlink & Audit Reviews",
+         ["backlink", "disavow", "ahrefs", "audit", "validation",
+          "qa validation", "recommendations", "keyword performance",
+          "ranking movement", "monitor implementation"]),
+        ("meetings",   "Standups & Meetings",
+         ["standup", "meeting", "review", "sync", "stakeholder",
+          "discussion", "coordination meeting"]),
+    ],
+    "Arun Nath J": [
+        ("keyword",    "Keyword Research",
+         ["keyword research", "keyword ranking", "keyword optimization"]),
+        ("audit",      "Site Audits",
+         ["audit", "source code", "gmb", "schema", "sitemap", "llms.txt",
+          "index status", "ai visibility", "url structure"]),
+        ("optimization","URL & Content Optimization",
+         ["url optimization", "content optimization", "meta tag",
+          "traffic projection"]),
+        ("analytics",  "Analytics & Projections",
+         ["analytics", "forecast", "projection", "organic session",
+          "gsc analysis", "competitive analysis"]),
+        ("tickets",    "Tickets & Reviews",
+         ["ticket review", "jira"]),
+    ],
+    "Gautham S": [
+        ("gap",        "GAP Pages",
+         ["gap static", "gap page", "gap review"]),
+        ("way",        "Way Pages",
+         ["way static", "way airport"]),
+        ("cruise",     "Cruise Pages",
+         ["cruise parking"]),
+        ("airport",    "Airport Content",
+         ["airport parking content"]),
+        ("meetings",   "Meetings & Interviews",
+         ["meeting", "interview", "all hands", "sync", "csr",
+          "content writer", "content team", "team meeting"]),
+    ],
+    "Gokul Nath": [
+        ("gap",        "GAP Pages",
+         ["gap static"]),
+        ("way",        "Way Pages",
+         ["way static", "way airport"]),
+        ("cruise",     "Cruise/Airport Pages",
+         ["cruise parking", "airport"]),
+        ("reddit",     "Reddit Posts",
+         ["reddit"]),
+        ("meetings",   "Meetings",
+         ["meeting", "all hands", "seo content team", "sync"]),
+    ],
+    "Sreejith SL": [
+        ("gap",        "GAP Pages",
+         ["gap static"]),
+        ("way",        "Way Pages",
+         ["way static"]),
+        ("cruise",     "Cruise/Airport Pages",
+         ["cruise parking", "airport parking"]),
+        ("reddit",     "Reddit Posts",
+         ["reddit"]),
+        ("meetings",   "Meetings",
+         ["meeting", "all hands", "seo content team", "report preparation"]),
+    ],
+    "Shilpa Sara": [
+        ("uiux",       "UI/UX Copy",
+         ["ui/ux copy", "ui/ux", "ux copy", "ux content"]),
+        ("product",    "Product-specific Copy",
+         ["way+", "way +", "r&m", "car wash", "carwash", "hyundai",
+          "pleos", "way repair tech", "retention"]),
+        ("meetings",   "Walkthroughs & Meetings",
+         ["walkthrough", "meeting", "all hands", "interview",
+          "design connect", "induction"]),
+    ],
+    "Arun Mahadev": [
+        ("uiux",       "UI/UX Copy",
+         ["ui/ux copy", "ui/ux"]),
+        ("uxcontent",  "UX Content",
+         ["ux copy", "ux content"]),
+    ],
+
+    # ─── OMNICHANNEL MARKETING ───────────────────────────────────────
+    "Ajay Singh": [
+        ("klaviyo",    "Klaviyo Campaigns",
+         ["klaviyo", "flow"]),
+        ("mailchimp",  "Mailchimp Campaigns",
+         ["mailchimp", " mc "]),
+        ("fifa_event", "FIFA & Event Campaigns",
+         ["fifa", "event", "monthly parking", "summer theme",
+          "independence day", "father", "jazz"]),
+        ("parking",    "Parking Email Campaigns",
+         ["city parking", "airport parking", "all parking", "all vertical",
+          "parking email", "parking campaign", "lot pricing",
+          "new segment", "new york"]),
+        ("reports",    "Reports & Analysis",
+         ["sendgrid", "tableau", "analysis", "report", "revenue analysis",
+          "roadmap", "dashboard", "deck", "comparison", "data"]),
+        ("meetings",   "Meetings",
+         ["meeting", "meet", "all hands", "adhoc", "weekly", "sync",
+          "review meet", "wayfarer", "training"]),
+    ],
+    "Kulwinder Singh": [
+        ("klaviyo_qa", "Klaviyo QA & Attribution",
+         ["klaviyo", "attribution"]),
+        ("segmentation", "Segmentation",
+         ["segment", "audience", "engagement", "unknown audience"]),
+        ("connects",   "Vendor/Team Connects",
+         ["connect", "netcore", "mailchimp team", "freelancer"]),
+        ("reviews",    "Reviews & Templates",
+         ["template", "review call", "cfo review", "review report",
+          "content strategy", "ideation", "flow trigger", "flow ideation"]),
+    ],
+    "Savitha Vasanthan": [
+        ("templates",  "Template Creation & Scheduling",
+         ["template", "schedule", "gap", "airport", "cruise", "cap",
+          "find", "alax"]),
+    ],
+    "Anna Mary": [
+        ("omni_email", "Omnichannel Email Copy",
+         ["omnichannel", "omni channel", "omni email",
+          "writing email copy (omnichannel)"]),
+        ("microsite",  "Microsite Email Copy",
+         ["microsite", "microsites"]),
+        ("sem_copy",   "SEM Ad Copy",
+         ["sem", "google search ad", "meta ad", "ad copy", "video script"]),
+        ("meetings",   "Interviews & Meetings",
+         ["interview", "invigilation", "evaluation", "meeting", "all hands",
+          "miscellaneous", "intake form"]),
+    ],
+    "Archa Ullas": [
+        ("omni_email", "Omnichannel Email Copy",
+         ["omni channel", "omnichannel", "cmnichannel"]),
+        ("microsite",  "Microsite Email Copy",
+         ["microsite"]),
+        ("sem_copy",   "SEM Ad Copy",
+         ["sem", "google search ad", "meta ad", "ad copy"]),
+        ("push",       "Push Copy",
+         ["push notification"]),
+        ("meetings",   "Meetings",
+         ["meeting", "email team weekly", "omnichannel weekly", "all hands",
+          "leadership tracker", "intake form", "meta ad workflow"]),
+    ],
+    "Devika Sheeja": [
+        ("posts",      "Post Creation",
+         ["post", "carousel", "carousal", "static", "gap post", "cruise post",
+          "fifa post", "fifa static", "nba", "diy", "tier list", "rage list",
+          "one app", "grandma", "sign", "budgeting", "no convience",
+          "shuttle", "ratings parking", "gas"]),
+        ("video",      "Video Editing",
+         ["video", "reel", "shoot", "footage", "shot life", "life at way",
+          "father's day", "fathers day", "fifa video", "youtube", "yt "]),
+        ("stories",    "Stories & TV",
+         ["story", "tv updation", "life at way story", "cruise creative",
+          "tow truck", "concert"]),
+        ("templates",  "Templates & Updates",
+         ["birthday", "anniversary", "bday", "template", "spotlight",
+          "jira updation"]),
+        ("meetings",   "Meetings & Connects",
+         ["meeting", "connect with", "meet with", "discussion", "sync",
+          "all hands", "wayfarer", "survey", "seat"]),
+    ],
+    "Jofia Joseph": [
+        ("video",      "Video/Reel Production",
+         ["video", "reel", "shoot", "footage", "shot life", "life at way",
+          "father's day", "fathers day", "father"]),
+        ("posts",      "Post Creation & Editing",
+         ["post creation", "post", "carousel", "carousal", "static",
+          "way post", "gap ", "cruise", "fifa", "budget", "diy",
+          "shuttle", "take 5", "star review", "wayfarer", "auto repair"]),
+        ("planning",   "Planning & Ideation",
+         ["ideation", "ideated", "3 month plan", "one month plan",
+          "planning", "researching", "researched", "recaliberation",
+          "extension", "unachievable", "briefing", "brief", "catchup",
+          "devika"]),
+        ("calendar",   "Content Calendar",
+         ["content calendar", "calendar", "utm"]),
+        ("metrics",    "Metrics & Analytics",
+         ["metric", "mom/yoy", "mom", "yoy", "comment", "analysis",
+          "check comment", "dec-june", "previous post"]),
+        ("meetings",   "Meetings",
+         ["meeting", "meet with", "connect with", "sync", "all hands",
+          "wayfarer", "timesheet", "time sheet", "tracker", "jira",
+          "schedule", "posted", "discussion"]),
+    ],
+
+    # ─── LOCAL MARKETING ─────────────────────────────────────────────
+    "Priya Kumari": [
+        ("proposals",  "Client Proposals & Decks",
+         ["proposal", "pitch deck", "deck", "customer deck", "pricing",
+          "documentation", "business case", "research", "audit",
+          "analysis", "orca", "nakayama", "delivery model",
+          "calibrating"]),
+        ("website",    "Website & Landing Pages",
+         ["website", "landing page", "figma", "prototype", "template",
+          "sk auto", "family autocare", "diablo", "autotronics", "eddie",
+          "custom alignment", "champs ad"]),
+        ("social",     "Social Media Strategy",
+         ["social media", "social", "orm"]),
+        ("csproduct",  "CS/Product Meetings",
+         ["cs collaboration", "cs marketing", "cs+marketing", "cs -",
+          "cs +", "product team", "engineering", "growth marketing",
+          "stand-up", "standup", "cadence", "daily sync"]),
+        ("campaign",   "Campaign Testing",
+         ["campaign", "testing", "ads", "prepay"]),
+        ("meetings",   "Meetings & Reviews",
+         ["meeting", "candidate interview", "interview", "connect", "review",
+          "feedback", "debrief", "sync", "hiring", "stakeholder"]),
+    ],
+
+    # ─── B2B ─────────────────────────────────────────────────────────
+    "Balavignesh P": [
+        ("certification","HubSpot Certifications",
+         ["hubspot certification", "certification"]),
+        ("workflows",  "HubSpot Workflows & Automation",
+         ["hubspot", "workflow", "automation", "nurture series", "r&m",
+          "carwash", "car wash", "ins ", "insurance", "email template",
+          "smartlead", "neverbounce", "web analytics", "marketing insights",
+          "segment", "utm", "leadfeeder", "warmly", "clay"]),
+        ("newsletter", "Newsletter Design/Build",
+         ["newsletter", "keith", "naga"]),
+        ("naitik_review","Reviews with Naitik",
+         ["naitik", "task scheduling", "task brief"]),
+        ("meetings",   "Meetings",
+         ["meeting", "meet", "call", "sync", "checkin", "interview",
+          "all hands", "wayfarer", "b2b sync", "aileen", "review",
+          "jira", "task update", "time sheet", "notes preparation",
+          "naming convention"]),
+    ],
+    "Rajeswari Menon": [
+        ("blog",       "Blog & Thought Leadership",
+         ["blog", "thought leadership", "white paper"]),
+        ("landing",    "Landing Page Copy",
+         ["landing page", "page revamp", "page rewrite", "ndpp",
+          "way+", "parking page", "solution", "industry page",
+          "roadside", "b2b2c", "banner", "roadside assistance",
+          "repair tech external"]),
+        ("casestudy",  "Case Studies",
+         ["case study", "case study development", "star park", "bridger"]),
+        ("email_ad",   "Email & Ad Copy",
+         ["email copy", "ad copy", "shopowner", "pc&d", "vendor payment",
+          "ux copy", "shuttle tracking", "one-pager", "flyer copy",
+          "shardas", "video script", "video sript", "script rewrite",
+          "script", "battle card", "b2b email catch"]),
+        ("meetings",   "Meetings & Reviews",
+         ["meeting", "review", "sync", "aileen", "interview",
+          "hiring", "town hall", "meet", "all hands", "publish",
+          "seo audit", "seo optimization", "content tasks",
+          "authors", "reorganization", "hubspot", "leadfeeder",
+          "ga4", "monitoring", "press release", "newsroom",
+          "linkedin", "ai marketing"]),
+    ],
+    "Sneha S": [
+        ("blog",       "Blog Writing",
+         ["blog", "blog revamp", "blog revision"]),
+        ("blog_pub",   "Blog Publishing",
+         ["blog published", "blog publishing", "completed and published",
+          "published blog"]),
+        ("script",     "Video Scripts",
+         ["product marketing video script", "video script"]),
+        ("meetings",   "Meetings",
+         ["meeting", "b2b marketing", "all hands", "jira walkthrough",
+          "software installation"]),
+    ],
+    "Seethal vargheese": [
+        ("linkedin",   "LinkedIn Content Calendar",
+         ["linkedin", "content calendar", "facebook", "organic post",
+          "paid post", "harbour", "ipmi", "way+ roadside"]),
+        ("leads",      "Warmly/Dealfront Lead Tracking",
+         ["warmly", "dealfront", "warm lead", "visitor", "hubspot verification",
+          "lead tracker", "partner lead", "partner data", "partner sheet",
+          "partner request", "shared visitor", "shared the visitor"]),
+        ("design",     "Design Coordination",
+         ["design", "qr code", "flyer", "banner", "thumbnail",
+          "marketplace", "amplitude", "champs", "video 1", "video 2",
+          "ipmi video", "adobe", "figma", "resize", "backdrop"]),
+        ("jira_pmo",   "Jira/PMO",
+         ["jira", "pmo", "sprint", "scrum", "epic", "task",
+          "time log", "time sheet", "tracker", "report", "b2b sync",
+          "sync", "sprint planning"]),
+        ("meetings",   "Meetings",
+         ["meeting", "meet", "eow", "all hands", "aileen", "sync",
+          "walkthrough", "call", "hr", "performance review",
+          "checkin", "b2b marketing"]),
+    ],
+
+    # ─── CROSS FUNCTIONAL ────────────────────────────────────────────
+    "Fanny Dorris": [
+        ("gap_qa",     "GAP Pages QA",
+         ["gap static"]),
+        ("airport_qa", "Airport Emails QA",
+         ["airport parking email"]),
+        ("omni_qa",    "Omnichannel Emails QA",
+         ["omnichannel email"]),
+        ("blog_qa",    "B2B Blog QA",
+         ["b2b blog", "blog revamp"]),
+        ("way_qa",     "Way Static Pages QA",
+         ["way page", "way pages", "way static",
+          "way airport parking static", "city parking page"]),
+        ("cruise_qa",  "Cruise QA",
+         ["cruise parking"]),
+        ("video_qa",   "Video Scripts QA",
+         ["video script"]),
+        ("meetings",   "Meetings",
+         ["meeting", "seo meeting", "all hands", "timesheet"]),
+    ],
+    "Akash R S": [
+        ("local_reports", "Local Marketing Reports",
+         ["local marketing report", "local markting", "local marketing"]),
+        ("weekly_reports", "Weekly Marketing Reports",
+         ["weekly marketing", "weekly data", "weekly governance",
+          "weekly report", "marketing weekly", "channel wise"]),
+        ("sales_decks", "Sales Decks",
+         ["sales pitch deck", "sales deck"]),
+        ("dashboards",  "Dashboards & Automation",
+         ["dashboard", "claude", "marketing activity tracker",
+          "airport parking seo", "gtm", "google analytics", "ga4",
+          "gsc", "search console", "semrush", "keyword analysis"]),
+        ("meetings",   "Meetings & Discussions",
+         ["discussion", "meeting", "sync", "sync up", "all hands",
+          "syncup", "meet", "1:1", "tracker", "kt "]),
+    ],
+    "Kiran Mathew": [
+        ("perf_track", "Marketing Performance Tracking",
+         ["marketing performance", "performance tracking",
+          "performance numbers", "marketing tracker", "sla tracker",
+          "marketing tracking", "tracking and review"]),
+        ("weekly_ppt", "Weekly Review Decks",
+         ["weekly marketing review", "weekly marketing reveiw",
+          "review ppt", "weekly review meeting",
+          "weekly tracker", "marketing tracker dashboard"]),
+        ("affiliate",  "Affiliate Marketing",
+         ["affiliate", "advertise purple", "content partnerships",
+          "leakage"]),
+        ("dashboards", "Email/SEO Dashboards",
+         ["dashboard", "email marketing", "klaviyo", "seo tracking",
+          "seo tracked", "airport parking dashboard",
+          "city parking dashboard", "segment", "customer segment"]),
+        ("pm",         "Program Management",
+         ["pm sync", "pmo", "program management", "program manager",
+          "mileage tracker", "way+", "car wash", "insurance reporting",
+          "ticket tracking", "gmb drop"]),
+        ("meetings",   "Meetings",
+         ["meeting", "meet", "sync", "all hands", "wayfarer",
+          "kickoff", "co-ordinating", "coordinating", "followed up",
+          "follow up", "followup", "roadmap", "attribution"]),
+    ],
+}
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# HELPERS
+# ═══════════════════════════════════════════════════════════════════════
 def _clean(s):
     if not isinstance(s, str):
         return s
-    return ''.join(c if c >= ' ' else ' ' for c in s).strip()
+    return "".join(c if c >= " " else " " for c in s).strip()
+
 
 def fmt_date(d):
     try:
@@ -131,244 +520,153 @@ def iso_date(d):
         return None
 
 
-def extract_count(deliverable, activity=""):
-    raw = str(deliverable).strip()
-    if not raw or raw in ["nan", "—", ""]:
+def extract_count(deliverable: str, activity: str) -> int:
+    """Extract deliverable count. Fallback to 1."""
+    d = str(deliverable) if deliverable else ""
+    a = str(activity) if activity else ""
+    combined = d + " " + a
+    if '"' in d or "'" in d:
         return 1
-    if raw.startswith('"') or raw.startswith('\u201c'):
-        return 1
-    d = raw.strip('"').strip('\u201c').strip('\u201d').strip()
-    dl = d.lower()
-
-    patterns = [
-        r'(\d+)\s*screens?', r'(\d+)\s*emails?', r'(\d+)\s*templates?',
-        r'(\d+)\s*campaign', r'(\d+)\s*posts?', r'(\d+)\s*stor(?:y|ies)',
-        r'(\d+)\s*reels?', r'(\d+)\s*videos?', r'(\d+)\s*pages?',
-        r'(\d+)\s*keywords?', r'(\d+)\s*markets?', r'(\d+)\s*reports?',
-        r'(\d+)\s*leads?', r'(\d+)\s*tickets?', r'(\d+)\s*variants?',
-        r'(\d+)\s*qr codes?', r'(\d+)\s*banners?', r'(\d+)\s*proposals?',
-        r'(\d+)\s*wireframes?', r'(\d+)\s*designs?', r'\(total (\d+)\)',
-        r'(\d+)\s*comments?',
-        r'(\d+)\s*(?:city parking|airport parking|all vertical|all parking|event parking)\s*emails?',
-        r'correspondence emails[-–]\s*(\d+)',
-        r'(\d+)\s*[Bb]log',
-    ]
-    for p in patterns:
-        m = re.search(p, d, re.IGNORECASE)
-        if m:
-            return int(m.group(1))
-
-    written = {r'\btwo\b': 2, r'\bthree\b': 3, r'\bfour\b': 4, r'\bfive\b': 5,
-               r'\bsix\b': 6, r'\bseven\b': 7, r'\beight\b': 8,
-               r'\bnine\b': 9, r'\bten\b': 10}
-    for p, val in written.items():
-        if re.search(p, dl):
-            return val
-
+    m = re.search(
+        r'\b(\d+)\s*(?:emails?|screens?|pages?|blogs?|posts?|templates?|'
+        r'campaigns?|reports?|decks?|slides?|documents?|threads?|comments?|'
+        r'videos?|scripts?|flows?|articles?|shots?|carousels?|carousals?|'
+        r'reels?|stories?|drafts?|tickets?|tasks?|workflows?|leads?|'
+        r'automations?|newsletters?|variations?|versions?|banners?|'
+        r'thumbnails?|images?|copies?)\b',
+        combined, re.IGNORECASE,
+    )
+    if m:
+        return int(m.group(1))
+    word_map = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+                "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+    for w, n in word_map.items():
+        if re.search(r'\b' + w + r'\b', combined, re.IGNORECASE):
+            return n
     return 1
 
 
+def normalize_name(n: str) -> str:
+    """Normalize name variants. Bajan BJ -> Bajan."""
+    n = str(n).strip()
+    if n == "Bajan BJ":
+        return "Bajan"
+    return n
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# CLASSIFIER
+# ═══════════════════════════════════════════════════════════════════════
+def classify(name: str, activity: str, deliverable: str) -> str:
+    """Return the bucket_key for this row. Unmatched -> 'other'."""
+    buckets = KPI_BUCKETS.get(name, [])
+    haystack = (str(activity) + " " + str(deliverable)).lower()
+    for bucket_key, _label, patterns in buckets:
+        for pat in patterns:
+            if pat.lower() in haystack:
+                return bucket_key
+    return "other"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# TASK DATA BUILDER
+# ═══════════════════════════════════════════════════════════════════════
 def build_task_data(df: pd.DataFrame) -> dict:
-    """
-    Builds the full task_data dict for all marketing sub-teams.
-    Mirrors the logic used in the local dashboard builder —
-    one bucket assignment per row, no gaps, no double-counting.
-    """
-    all_data = {}
+    """Build {person_bucket_key: [tasks...]} for embedding into HTML."""
+    task_data = {}
 
-    def add_entries(key, subset):
-        rows = []
-        for _, r in subset.iterrows():
-            cnt = extract_count(
-                str(r.get('Work Output / Deliverable', '')),
-                str(r.get('Activity', ''))
-            )
-            mins = int(r['Time Spent (in Mins)']) if pd.notna(r['Time Spent (in Mins)']) else 0
-            rows.append({
-                "date": fmt_date(r['Date']),
-                "iso": iso_date(r['Date']),
-                "activity": _clean(str(r.get('Activity', '')))[:200],
-                "deliverable": _clean(str(r.get('Work Output / Deliverable', '')))[:300],
-                "mins": mins,
-                "freq": str(r.get('Frequency', '—')).strip() if pd.notna(r.get('Frequency')) else "—",
-                "impact": str(r.get('Impact Bucket', '—')).strip() if pd.notna(r.get('Impact Bucket')) else "—",
-                "del_count": cnt,
-                "mins_per_del": round(mins / cnt) if cnt and cnt > 0 and mins > 0 else None,
-            })
-        all_data[key] = rows
+    # Pre-seed every KPI key so HTML cells always find their key.
+    for name, meta in ROSTER.items():
+        prefix = meta["prefix"]
+        for bucket_key, _label, _pats in KPI_BUCKETS.get(name, []):
+            task_data[f"{prefix}_{bucket_key}"] = []
+        task_data[f"{prefix}_other"] = []
 
-    def A(df_, person, pat):
-        sub = df_[df_['Employee name'] == person]
-        return sub[sub['Activity'].str.contains(pat, na=False, regex=True, case=False)]
+    for _, r in df.iterrows():
+        name = normalize_name(r["Employee name"])
+        if name not in ROSTER:
+            continue
+        prefix = ROSTER[name]["prefix"]
 
-    # ── CONTENT TEAM ─────────────────────────────────────────────
-    for person, pkey in [("Archa Ullas", "Archa"), ("Anna Mary", "Anna")]:
-        sub = df[df['Employee name'] == person]
-        add_entries(f"{pkey}_omni_email", sub[sub['Activity'].str.contains(r'[Oo]mni[Cc]hannel email|Email [Cc]ontent.*[Oo]mni', na=False, regex=True)])
-        add_entries(f"{pkey}_micro_email", sub[sub['Activity'].str.contains(r'[Mm]icrosite [Ee]mail', na=False, regex=True)])
-        add_entries(f"{pkey}_ad_copy", sub[sub['Activity'].str.contains(r'[Aa]d copy|[Gg]oogle search ad|[Mm]eta ad', na=False, regex=True)])
-        add_entries(f"{pkey}_video", sub[sub['Activity'].str.contains(r'[Vv]ideo script', na=False, regex=True)])
-        add_entries(f"{pkey}_push", sub[sub['Activity'].str.contains(r'[Pp]ush notification', na=False, regex=True)])
-        add_entries(f"{pkey}_process", sub[sub['Activity'].str.contains(r'[Ww]orkflow|[Ii]ntake [Ff]orm|[Jj]ira', na=False, regex=True)])
-        add_entries(f"{pkey}_interview", sub[sub['Activity'].str.contains(r'[Ii]nterv|[Ii]nvigilat', na=False, regex=True)])
-        add_entries(f"{pkey}_meetings", sub[sub['Activity'].str.contains(r'[Mm]eeting', na=False, regex=True)])
+        activity = _clean(str(r.get("Activity", "")))[:200]
+        deliverable = _clean(str(r.get("Work Output / Deliverable", "")))[:400]
 
-    for person, pkey in [("Gautham S", "Gautham"), ("Gokul Nath", "Gokul"), ("Sreejith SL", "Sreejith")]:
-        sub = df[df['Employee name'] == person]
-        add_entries(f"{pkey}_way_pages", sub[sub['Activity'].str.contains(r'[Ww]ay static page|[Ww]ay airport', na=False, regex=True)])
-        add_entries(f"{pkey}_gap_pages", sub[sub['Activity'].str.contains(r'[Gg][Aa][Pp].*[Pp]age', na=False, regex=True)])
-        add_entries(f"{pkey}_cruise_pages", sub[sub['Activity'].str.contains(r'[Cc]ruise.*[Pp]arking|[Cc]ruise.*[Pp]age', na=False, regex=True)])
-        add_entries(f"{pkey}_city_pages", sub[sub['Activity'].str.contains(r'[Cc]ity.*[Pp]arking.*[Pp]age|NRG Stadium', na=False, regex=True)])
-        add_entries(f"{pkey}_reddit", sub[sub['Activity'].str.contains(r'[Rr]eddit', na=False, regex=True)])
-        add_entries(f"{pkey}_qa", sub[sub['Activity'].str.contains(r'[Rr]eview|QA', na=False, regex=True)])
-        add_entries(f"{pkey}_meetings", sub[sub['Activity'].str.contains(r'[Mm]eeting|[Aa]ll [Hh]ands', na=False, regex=True)])
+        mins_raw = pd.to_numeric(r.get("Time Spent (in Mins)", 0), errors="coerce")
+        if pd.isna(mins_raw):
+            continue
+        mins = int(mins_raw)
+        if mins <= 0:
+            continue
 
-    for person, pkey in [("Shilpa Sara", "Shilpa"), ("Arun Mahadev", "Arun")]:
-        sub = df[df['Employee name'] == person]
-        add_entries(f"{pkey}_carwash", sub[sub['Activity'].str.contains(r'[Cc]ar [Ww]ash', na=False, regex=True) | sub['Work Output / Deliverable'].str.contains(r'[Cc]ar [Ww]ash', na=False, regex=True)])
-        add_entries(f"{pkey}_wayplus", sub[sub['Activity'].str.contains(r'[Ww]ay\+|[Rr]etention', na=False, regex=True) | sub['Work Output / Deliverable'].str.contains(r'[Ww]ay\+|[Rr]etention', na=False, regex=True)])
-        add_entries(f"{pkey}_mileage", sub[sub['Activity'].str.contains(r'[Mm]ileage [Tt]racker|[Tt]rackmile', na=False, regex=True) | sub['Work Output / Deliverable'].str.contains(r'[Mm]ileage [Tt]racker|[Tt]rackmile', na=False, regex=True)])
-        add_entries(f"{pkey}_rm", sub[sub['Activity'].str.contains(r'R&M|[Rr]epair.*[Mm]anagement', na=False, regex=True) | sub['Work Output / Deliverable'].str.contains(r'R&M|[Ww]orkboard|[Rr]oadside', na=False, regex=True)])
-        add_entries(f"{pkey}_hyundai", sub[sub['Activity'].str.contains(r'[Hh]yundai|[Pp]leos', na=False, regex=True)])
-        add_entries(f"{pkey}_event", sub[sub['Activity'].str.contains(r'[Ee]vent [Pp]arking|[Ss]elect [Pp]arking|[Cc]ity [Pp]arking|[Ss]MS|[Cc]ancellation', na=False, regex=True)])
-        add_entries(f"{pkey}_qa_doc", sub[sub['Activity'].str.contains(r'QA|[Dd]ocument|[Ww]alkthrough|[Ii]nterview', na=False, regex=True)])
+        freq = _clean(str(r.get("Frequency", "")))[:40] or "—"
+        impact = _clean(str(r.get("Impact Bucket", "")))[:80] or "—"
+        del_count = extract_count(deliverable, activity)
+        mins_per_del = round(mins / del_count) if del_count else mins
 
-    for person, pkey in [("Rajeswari Menon", "Raje"), ("Sneha S", "Sneha")]:
-        sub = df[df['Employee name'] == person]
-        add_entries(f"{pkey}_blogs", sub[sub['Activity'].str.contains(r'[Bb]log', na=False, regex=True)])
-        add_entries(f"{pkey}_email", sub[sub['Activity'].str.contains(r'[Ee]mail', na=False, regex=True)])
-        add_entries(f"{pkey}_video", sub[sub['Activity'].str.contains(r'[Vv]ideo [Ss]cript', na=False, regex=True)])
-        add_entries(f"{pkey}_pages", sub[sub['Activity'].str.contains(r'[Ll]anding [Pp]age|[Pp]age.*revamp|[Pp]arking.*page|[Ii]ndustry [Pp]age|[Bb]usiness.*page', na=False, regex=True)])
-        add_entries(f"{pkey}_strategic", sub[sub['Activity'].str.contains(r'[Ww]hite [Pp]aper|[Cc]ase [Ss]tudy', na=False, regex=True)])
-        add_entries(f"{pkey}_adcopy", sub[sub['Activity'].str.contains(r'[Aa]d [Cc]opy|[Bb]anner [Cc]opy|[Ff]lyer', na=False, regex=True)])
-        add_entries(f"{pkey}_hubspot", sub[sub['Activity'].str.contains(r'[Hh]ub[Ss]pot|GA4.*monitor', na=False, regex=True)])
-        add_entries(f"{pkey}_recruit", sub[sub['Activity'].str.contains(r'[Ii]nterview|[Hh]iring|[Cc]andidates', na=False, regex=True)])
-        add_entries(f"{pkey}_meetings", sub[sub['Activity'].str.contains(r'[Mm]eeting|[Ss]ync|1:1', na=False, regex=True)])
+        bucket = classify(name, activity, deliverable)
+        key = f"{prefix}_{bucket}"
 
-    sub = df[df['Employee name'] == 'Fanny Dorris']
-    add_entries("Fanny_ap_email", sub[sub['Activity'].str.contains(r'[Aa]irport.*[Ee]mail', na=False, regex=True)])
-    add_entries("Fanny_omni_email", sub[sub['Activity'].str.contains(r'[Oo]mni[Cc]hannel [Ee]mail', na=False, regex=True)])
-    add_entries("Fanny_way_pages", sub[sub['Activity'].str.contains(r'[Ww]ay.*[Pp]age|[Ww]ay.*[Ss]tatic', na=False, regex=True)])
-    add_entries("Fanny_gap_pages", sub[sub['Activity'].str.contains(r'[Gg][Aa][Pp].*[Ss]tatic|[Gg][Aa][Pp].*[Pp]age', na=False, regex=True)])
-    add_entries("Fanny_blogs", sub[sub['Activity'].str.contains(r'[Bb]2[Bb].*[Bb]log|[Bb]log.*revamp', na=False, regex=True)])
-    add_entries("Fanny_cruise", sub[sub['Activity'].str.contains(r'[Cc]ruise', na=False, regex=True)])
-    add_entries("Fanny_video", sub[sub['Activity'].str.contains(r'[Vv]ideo [Ss]cript', na=False, regex=True)])
-    add_entries("Fanny_meetings", sub[sub['Activity'].str.contains(r'[Mm]eeting', na=False, regex=True)])
+        task_data.setdefault(key, []).append({
+            "date": fmt_date(r["Date"]),
+            "iso": iso_date(r["Date"]),
+            "activity": activity,
+            "deliverable": deliverable,
+            "mins": mins,
+            "freq": freq,
+            "impact": impact,
+            "del_count": del_count,
+            "mins_per_del": mins_per_del,
+        })
 
-    # ── SEO / EMAIL / SOCIAL / B2B DIGITAL — single-assignment classifier ──
-    def classify(person, activity, deliverable):
-        t = (str(activity) + " " + str(deliverable)).lower()
-
-        if person == 'Bajan':
-            if re.search(r'keyword|ranking', t): return 'keyword'
-            if re.search(r'ticket|prioritization', t): return 'ticket'
-            if re.search(r'dashboard|deck|report', t): return 'dashboard'
-            if re.search(r'standup|meeting|connect', t): return 'meetings'
-            return 'audit'
-        if person == 'Haripriya L':
-            if re.search(r'content review|content', t): return 'content'
-            if re.search(r'keyword|ranking|baseline', t): return 'keyword'
-            if re.search(r'landing page|fifa', t): return 'landing'
-            if re.search(r'deck|dashboard|performance', t): return 'dashboard'
-            if re.search(r'standup|meeting|review|walkthrough|sync', t): return 'meetings'
-            return 'audit'
-        if person == 'Naveen PC':
-            if re.search(r'crawl|screaming frog', t): return 'crawl'
-            if re.search(r'backlink|disavow', t): return 'backlink'
-            if re.search(r'ticket|follow-up', t): return 'ticket'
-            if re.search(r'standup|meeting|stakeholder', t): return 'meetings'
-            return 'audit'
-        if person == 'Arun Nath J':
-            if re.search(r'keyword|ranking', t): return 'keyword'
-            if re.search(r'audit|website|url', t): return 'audit'
-            if re.search(r'research|plan', t): return 'research'
-            if re.search(r'jira|ticket|meeting', t): return 'meetings'
-            return 'analysis'
-        if person == 'Balavignesh P':
-            if re.search(r'email id check|lead feeder', t): return 'emailops'
-            if re.search(r'template|newsletter', t): return 'template'
-            if re.search(r'task scheduling|naitik', t): return 'delegation'
-            if re.search(r'ga tracking|hubspot|jira', t): return 'tracking'
-            if re.search(r'time sheet|meeting|sync', t): return 'meetings'
-            return 'tracking'
-        if person == 'Kulwinder Singh':
-            if re.search(r'template', t): return 'template'
-            if re.search(r'qa|klaviyo event', t): return 'qa'
-            if re.search(r'klaviyo|mailchimp|netcore|sendgrid', t): return 'platform'
-            if re.search(r'review call|meeting|report', t): return 'meetings'
-            return 'platform'
-        if person == 'Ajay Singh':
-            if re.search(r'campaign|klaviyo', t): return 'campaign'
-            if re.search(r'sendgrid|tableau|report|analysis', t): return 'reports'
-            if re.search(r'qa|approval', t): return 'qa'
-            if re.search(r'meet|weekly', t): return 'meetings'
-            return 'schedule'
-        if person == 'Savitha Vasanthan':
-            return 'template'
-        if person == 'Priya Kumari':
-            if re.search(r'social media|cadence', t): return 'social'
-            if re.search(r'proposal|pitch|deck', t): return 'proposal'
-            if re.search(r'landing page|campaign', t): return 'landing'
-            if re.search(r'meeting|review', t): return 'meetings'
-            return 'audit'
-        if person == 'Devika Sheeja':
-            if re.search(r'story', t): return 'story'
-            if re.search(r'video|reel', t): return 'video'
-            if re.search(r'template|tv updation|bday', t): return 'template'
-            if re.search(r'calendar|schedule|campaign', t): return 'calendar'
-            if re.search(r'meeting', t): return 'meetings'
-            return 'posts'
-        if person == 'Jofia Joseph':
-            if re.search(r'video|reel', t): return 'video'
-            if re.search(r'metric|comment|report', t): return 'metrics'
-            if re.search(r'schedule|calendar', t): return 'schedule'
-            if re.search(r'meeting|research', t): return 'meetings'
-            return 'posts'
-        if person == 'Seethal vargheese':
-            if re.search(r'lead|partner|hubspot', t): return 'leadmgmt'
-            if re.search(r'linkedin|facebook|content calendar', t): return 'social'
-            if re.search(r'design|wireframe|banner|qr code', t): return 'design'
-            if re.search(r'utm|campaign|newsletter|video', t): return 'campaign'
-            if re.search(r'meeting|follow-up|alignment', t): return 'meetings'
-            return 'campaign'
-        return 'other'
-
-    pkey_map = {'Bajan': 'Bajan', 'Haripriya L': 'Haripriya', 'Naveen PC': 'Naveen',
-                'Arun Nath J': 'ArunNath', 'Balavignesh P': 'Bala', 'Kulwinder Singh': 'Kulwinder',
-                'Ajay Singh': 'Ajay', 'Savitha Vasanthan': 'Savitha', 'Priya Kumari': 'Priya',
-                'Devika Sheeja': 'Devika', 'Jofia Joseph': 'Jofia', 'Seethal vargheese': 'Seethal'}
-
-    from collections import defaultdict
-    buckets = defaultdict(list)
-    for person, pk in pkey_map.items():
-        sub = df[df['Employee name'] == person]
-        for _, r in sub.iterrows():
-            bucket = classify(person, r.get('Activity', ''), r.get('Work Output / Deliverable', ''))
-            key = f"{pk}_{bucket}"
-            cnt = extract_count(str(r.get('Work Output / Deliverable', '')), str(r.get('Activity', '')))
-            mins = int(r['Time Spent (in Mins)']) if pd.notna(r['Time Spent (in Mins)']) else 0
-            buckets[key].append({
-                "date": fmt_date(r['Date']),
-                "iso": iso_date(r['Date']),
-                "activity": _clean(str(r.get('Activity', '')))[:200],
-                "deliverable": _clean(str(r.get('Work Output / Deliverable', '')))[:300],
-                "mins": mins,
-                "freq": str(r.get('Frequency', '—')).strip() if pd.notna(r.get('Frequency')) else "—",
-                "impact": str(r.get('Impact Bucket', '—')).strip() if pd.notna(r.get('Impact Bucket')) else "—",
-                "del_count": cnt,
-                "mins_per_del": round(mins / cnt) if cnt and cnt > 0 and mins > 0 else None,
-            })
-
-    all_data.update(dict(buckets))
-    return all_data
+    return task_data
 
 
-# ════════════════════════════════════════════════════════════════
-# STEP 3 — UPDATE HTML
-# ════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
+# SHAREPOINT DOWNLOAD
+# ═══════════════════════════════════════════════════════════════════════
+def convert_to_download_url(share_url: str) -> str:
+    """SharePoint 'anyone with the link' URLs need '?download=1' to
+    force a file download instead of the web viewer."""
+    if "download=1" in share_url:
+        return share_url
+    sep = "&" if "?" in share_url else "?"
+    return f"{share_url}{sep}download=1"
 
+
+def download_excel() -> Path:
+    if not SHAREPOINT_URL:
+        raise RuntimeError(
+            "SHAREPOINT_URL secret is not set. "
+            "Add it in Settings → Secrets and variables → Actions."
+        )
+    download_url = convert_to_download_url(SHAREPOINT_URL)
+    log.info("Downloading Excel from SharePoint public link...")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/120.0.0.0 Safari/537.36",
+    }
+    resp = requests.get(download_url, headers=headers, timeout=60, allow_redirects=True)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Download failed — HTTP {resp.status_code}")
+    ct = resp.headers.get("Content-Type", "")
+    if "html" in ct.lower() and len(resp.content) < 50_000:
+        raise RuntimeError(
+            "Got an HTML page instead of the Excel file. "
+            "Check the SharePoint link is 'Anyone with the link can view'."
+        )
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+    tmp.write(resp.content)
+    tmp.close()
+    log.info(f"Downloaded {len(resp.content)/1024:.1f} KB")
+    return Path(tmp.name)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# HTML UPDATE
+# ═══════════════════════════════════════════════════════════════════════
 def update_html(html_path: str, new_data: dict) -> bool:
-    """Returns True if the file content actually changed."""
+    """Rewrite the const T = {...}; block. Returns True if changed."""
     path = Path(html_path)
     if not path.exists():
         raise FileNotFoundError(f"{html_path} not found in repo root.")
@@ -381,20 +679,14 @@ def update_html(html_path: str, new_data: dict) -> bool:
 
     pattern = r'const T = \{.*?\};'
     if not re.search(pattern, html, flags=re.DOTALL):
-        raise ValueError("Could not find 'const T = {...};' in dashboard.html")
+        raise ValueError("Could not find 'const T = {...};' in index.html")
 
     html_updated = re.sub(pattern, new_const, html, flags=re.DOTALL)
 
     ts = datetime.utcnow().strftime("%d %b %Y, %I:%M %p UTC")
     if "Last updated:" in html_updated:
-        html_updated = re.sub(r'Last updated:.*?(?=<)', f'Last updated: {ts} ', html_updated)
-    else:
-        # Insert a timestamp near the rh-date badge if not present
-        html_updated = html_updated.replace(
-            '<div class="rh-date">',
-            f'<div class="rh-date">Last updated: {ts} · ',
-            1
-        )
+        html_updated = re.sub(r'Last updated:.*?(?=<)',
+                              f'Last updated: {ts} ', html_updated)
 
     changed = html_updated != html
     if changed:
@@ -403,57 +695,32 @@ def update_html(html_path: str, new_data: dict) -> bool:
     return changed
 
 
-# ════════════════════════════════════════════════════════════════
-# MAIN
-# ════════════════════════════════════════════════════════════════
-
-# ════════════════════════════════════════════════════════════════
-# MISSING-UPDATES CHECK
-# ════════════════════════════════════════════════════════════════
-# The full expected roster — everyone who should be logging activity.
-# When a new joiner is added to the dashboard, add their exact
-# SharePoint name here too so the compliance check includes them.
-ROSTER = [
-    "Archa Ullas", "Anna Mary", "Gautham S", "Gokul Nath", "Sreejith SL",
-    "Shilpa Sara", "Arun Mahadev", "Rajeswari Menon", "Sneha S", "Fanny Dorris",
-    "Bajan", "Haripriya L", "Naveen PC", "Arun Nath J", "Balavignesh P",
-    "Kulwinder Singh", "Ajay Singh", "Savitha Vasanthan", "Priya Kumari",
-    "Devika Sheeja", "Jofia Joseph", "Seethal vargheese",
-]
-
-
+# ═══════════════════════════════════════════════════════════════════════
+# MISSING-UPDATES CHECK (used by the 12 PM IST email)
+# ═══════════════════════════════════════════════════════════════════════
 def check_missing_updates(df_all: pd.DataFrame) -> None:
-    """Check who did NOT log activity for the previous WORKING day.
-
-    Runs once daily (the workflow schedules the evening-IST run). Skips
-    weekends: if the previous calendar day was a weekend, no check is done.
-    Writes missing_yesterday.json for downstream email delivery.
-    """
-    from datetime import timedelta, timezone
-
-    # "Now" in IST (UTC+5:30). We check the day that just ended.
+    """Who did NOT log activity for the previous WORKING day?
+    Writes missing_yesterday.json for the email step. Weekend-skip."""
     ist = timezone(timedelta(hours=5, minutes=30))
     now_ist = datetime.now(ist)
-    target = (now_ist - timedelta(days=1)).date()   # yesterday, IST
+    target = (now_ist - timedelta(days=1)).date()
 
-    # Skip if the day we'd be checking is a weekend (Sat=5, Sun=6)
     if target.weekday() >= 5:
         log.info(f"Missing-check skipped — {target} was a weekend.")
         return
 
     target_iso = target.strftime("%Y-%m-%d")
-
-    # Who logged at least one row dated the target day?
     logged = set(
-        df_all.loc[df_all['Date'].dt.strftime("%Y-%m-%d") == target_iso, 'Employee name']
+        df_all.loc[df_all['Date'].dt.strftime("%Y-%m-%d") == target_iso,
+                   'Employee name'].map(normalize_name)
     )
-    missing = [name for name in ROSTER if name not in logged]
+    missing = [n for n in EMAIL_ROSTER if n not in logged]
 
     payload = {
         "checked_on": now_ist.strftime("%Y-%m-%d %H:%M IST"),
         "for_date": target.strftime("%a, %d %b %Y"),
         "for_date_iso": target_iso,
-        "total_roster": len(ROSTER),
+        "total_roster": len(EMAIL_ROSTER),
         "missing_count": len(missing),
         "missing_names": missing,
     }
@@ -462,11 +729,14 @@ def check_missing_updates(df_all: pd.DataFrame) -> None:
 
     if missing:
         log.info(f"MISSING activity for {payload['for_date']} "
-                 f"({len(missing)}/{len(ROSTER)}): {', '.join(missing)}")
+                 f"({len(missing)}/{len(EMAIL_ROSTER)}): {', '.join(missing)}")
     else:
-        log.info(f"All {len(ROSTER)} logged activity for {payload['for_date']} ✓")
+        log.info(f"All {len(EMAIL_ROSTER)} logged activity for {payload['for_date']} ✓")
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════════════════════════════════════
 def main():
     start = time.time()
     log.info("=" * 60)
@@ -481,10 +751,8 @@ def main():
         df['Employee name'] = df['Employee name'].astype(str).str.strip()
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
 
-        # Missing-updates compliance check. This is cheap, so we always run
-        # it and write missing_yesterday.json. Whether an EMAIL is sent is
-        # controlled separately by the workflow (only the 5:15 PM IST run and
-        # manual runs send mail). Weekends are skipped inside the function.
+        # Compliance check runs every time; email is sent only on the
+        # scheduled 12 PM IST run (workflow-gated).
         check_missing_updates(df.copy())
 
         before = len(df)
@@ -492,21 +760,29 @@ def main():
             df = df[(df['Date'] >= DATE_START) & (df['Date'] <= DATE_END)]
         else:
             df = df[df['Date'] >= DATE_START]
-        log.info(f"Date filter from {DATE_START} (no upper cap): {before} → {len(df)} rows")
+        # Also drop excluded people (e.g. Naitik) so their rows don't
+        # affect dedup or per-person aggregates.
+        df = df[~df['Employee name'].isin(EXCLUDED_FROM_DASHBOARD)]
+        log.info(f"Date filter from {DATE_START} (no upper cap): "
+                 f"{before} → {len(df)} rows")
 
         df = df.drop_duplicates(
             subset=['Employee name', 'Date', 'Activity',
                     'Work Output / Deliverable', 'Time Spent (in Mins)']
         )
-        log.info(f"After dedup: {len(df)} rows, {df['Employee name'].nunique()} people")
+        log.info(f"After dedup: {len(df)} rows, "
+                 f"{df['Employee name'].nunique()} people")
 
         task_data = build_task_data(df)
         total_tasks = sum(len(v) for v in task_data.values())
-        log.info(f"Built {len(task_data)} KPI keys, {total_tasks} task entries")
+        total_mins = sum(sum(r['mins'] for r in rows)
+                         for rows in task_data.values())
+        log.info(f"Built {len(task_data)} KPI keys, {total_tasks} task entries, "
+                 f"{total_mins:,} total mins")
 
         changed = update_html(DASHBOARD_HTML, task_data)
         if changed:
-            log.info("dashboard.html updated — changes will be committed")
+            log.info("index.html updated — changes will be committed")
         else:
             log.info("No data changes detected — nothing to commit")
 
@@ -521,4 +797,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == "--local":
+        # Local test mode: python dashboard.py --local path/to/excel.xlsx
+        path = sys.argv[2]
+        df = pd.read_excel(path, sheet_name=SHEET_NAME, header=1)
+        data = build_task_data(df)
+        print(f"KPI keys: {len(data)}")
+        print(f"Total tasks: {sum(len(v) for v in data.values())}")
+        print(f"Total mins: {sum(sum(r['mins'] for r in rows) for rows in data.values()):,}")
+    else:
+        main()
