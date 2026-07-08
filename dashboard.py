@@ -50,35 +50,50 @@ SHAREPOINT_URL = os.environ.get("SHAREPOINT_URL", "")
 # Each entry: display name -> {tab, prefix (for HTML data-keys)}
 # "Bajan BJ" rows are normalized to "Bajan" before classification.
 ROSTER = {
-    # Organic SEO tab
-    "Bajan":             {"tab": "seo",   "prefix": "Bajan"},
-    "Haripriya L":       {"tab": "seo",   "prefix": "Haripriya"},
-    "Naveen PC":         {"tab": "seo",   "prefix": "Naveen"},
-    "Arun Nath J":       {"tab": "seo",   "prefix": "ArunNath"},
-    "Gautham S":         {"tab": "seo",   "prefix": "Gautham"},
-    "Gokul Nath":        {"tab": "seo",   "prefix": "Gokul"},
-    "Sreejith SL":       {"tab": "seo",   "prefix": "Sreejith"},
-    "Shilpa Sara":       {"tab": "seo",   "prefix": "Shilpa"},
-    "Arun Mahadev":      {"tab": "seo",   "prefix": "ArunM"},
-    # Omnichannel Marketing tab
-    "Ajay Singh":        {"tab": "omni",  "prefix": "Ajay"},
-    "Kulwinder Singh":   {"tab": "omni",  "prefix": "Kulwinder"},
-    "Savitha Vasanthan": {"tab": "omni",  "prefix": "Savitha"},
-    "Anna Mary":         {"tab": "omni",  "prefix": "Anna"},
-    "Archa Ullas":       {"tab": "omni",  "prefix": "Archa"},
-    "Devika Sheeja":     {"tab": "omni",  "prefix": "Devika"},
-    "Jofia Joseph":      {"tab": "omni",  "prefix": "Jofia"},
-    # Local Marketing tab
-    "Priya Kumari":      {"tab": "local", "prefix": "Priya"},
-    # B2B tab
-    "Balavignesh P":     {"tab": "b2b",   "prefix": "Bala"},
-    "Rajeswari Menon":   {"tab": "b2b",   "prefix": "Raje"},
-    "Sneha S":           {"tab": "b2b",   "prefix": "Sneha"},
-    "Seethal vargheese": {"tab": "b2b",   "prefix": "Seethal"},
-    # Cross Functional tab
-    "Fanny Dorris":      {"tab": "cross", "prefix": "Fanny"},
-    "Akash R S":         {"tab": "cross", "prefix": "Akash"},
-    "Kiran Mathew":      {"tab": "cross", "prefix": "Kiran"},
+    # ═══ Organic SEO tab ═══
+    # SEO Technical
+    "Bajan":             {"tab": "seo",   "subteam": "SEO Technical",     "prefix": "Bajan"},
+    "Haripriya L":       {"tab": "seo",   "subteam": "SEO Technical",     "prefix": "Haripriya"},
+    "Naveen PC":         {"tab": "seo",   "subteam": "SEO Technical",     "prefix": "Naveen"},
+    "Arun Nath J":       {"tab": "seo",   "subteam": "SEO Technical",     "prefix": "ArunNath"},
+    # SEO Content
+    "Gautham S":         {"tab": "seo",   "subteam": "SEO Content",       "prefix": "Gautham"},
+    "Gokul Nath":        {"tab": "seo",   "subteam": "SEO Content",       "prefix": "Gokul"},
+    "Sreejith SL":       {"tab": "seo",   "subteam": "SEO Content",       "prefix": "Sreejith"},
+    # UX Copy
+    "Shilpa Sara":       {"tab": "seo",   "subteam": "UX Copy",           "prefix": "Shilpa"},
+    "Arun Mahadev":      {"tab": "seo",   "subteam": "UX Copy",           "prefix": "ArunM"},
+
+    # ═══ Omnichannel Marketing tab ═══
+    # Omnichannel Email
+    "Ajay Singh":        {"tab": "omni",  "subteam": "Omnichannel Email", "prefix": "Ajay"},
+    "Kulwinder Singh":   {"tab": "omni",  "subteam": "Omnichannel Email", "prefix": "Kulwinder"},
+    "Savitha Vasanthan": {"tab": "omni",  "subteam": "Omnichannel Email", "prefix": "Savitha"},
+    # Omnichannel Content
+    "Anna Mary":         {"tab": "omni",  "subteam": "Omnichannel Content","prefix": "Anna"},
+    "Archa Ullas":       {"tab": "omni",  "subteam": "Omnichannel Content","prefix": "Archa"},
+    # Omnichannel Social
+    "Devika Sheeja":     {"tab": "omni",  "subteam": "Omnichannel Social","prefix": "Devika"},
+    "Jofia Joseph":      {"tab": "omni",  "subteam": "Omnichannel Social","prefix": "Jofia"},
+
+    # ═══ Local Marketing tab ═══
+    "Priya Kumari":      {"tab": "local", "subteam": "Local Marketing",   "prefix": "Priya"},
+
+    # ═══ B2B tab ═══
+    # B2B Email
+    "Balavignesh P":     {"tab": "b2b",   "subteam": "B2B Email",         "prefix": "Bala"},
+    # B2B Content
+    "Rajeswari Menon":   {"tab": "b2b",   "subteam": "B2B Content",       "prefix": "Raje"},
+    "Sneha S":           {"tab": "b2b",   "subteam": "B2B Content",       "prefix": "Sneha"},
+    # B2B Digital
+    "Seethal vargheese": {"tab": "b2b",   "subteam": "B2B Digital",       "prefix": "Seethal"},
+
+    # ═══ Cross Functional tab ═══
+    # QA
+    "Fanny Dorris":      {"tab": "cross", "subteam": "QA",                "prefix": "Fanny"},
+    # Mgmt Trainee
+    "Akash R S":         {"tab": "cross", "subteam": "Mgmt Trainee",      "prefix": "Akash"},
+    "Kiran Mathew":      {"tab": "cross", "subteam": "Mgmt Trainee",      "prefix": "Kiran"},
 }
 
 # Names in the tracker to exclude from the dashboard entirely.
