@@ -1,23 +1,20 @@
 {
-  "checked_on": "2026-07-10 04:22 IST",
+  "checked_on": "2026-07-10 16:07 IST",
   "for_date": "Thu, 09 Jul 2026",
   "for_date_iso": "2026-07-09",
   "total_roster": 22,
-  "missing_count": 14,
+  "missing_count": 11,
   "missing_names": [
-    "Anna Mary",
     "Gautham S",
     "Gokul Nath",
     "Sreejith SL",
     "Arun Mahadev",
-    "Sneha S",
     "Bajan",
     "Haripriya L",
     "Naveen PC",
     "Kulwinder Singh",
     "Savitha Vasanthan",
     "Priya Kumari",
-    "Devika Sheeja",
     "Seethal vargheese"
   ]
 }
