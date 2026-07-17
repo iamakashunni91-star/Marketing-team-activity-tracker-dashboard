@@ -1,9 +1,9 @@
 {
-  "checked_on": "2026-07-17 22:08 IST",
-  "for_date": "Thu, 16 Jul 2026",
-  "for_date_iso": "2026-07-16",
+  "checked_on": "2026-07-18 01:59 IST",
+  "for_date": "Fri, 17 Jul 2026",
+  "for_date_iso": "2026-07-17",
   "total_roster": 22,
-  "missing_count": 10,
+  "missing_count": 12,
   "missing_names": [
     "Gautham S",
     "Sreejith SL",
@@ -12,8 +12,10 @@
     "Sneha S",
     "Bajan",
     "Naveen PC",
+    "Balavignesh P",
     "Kulwinder Singh",
     "Savitha Vasanthan",
+    "Jofia Joseph",
     "Seethal vargheese"
   ]
 }
