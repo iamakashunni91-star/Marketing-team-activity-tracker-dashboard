@@ -1,21 +1,23 @@
 {
-  "checked_on": "2026-07-18 21:03 IST",
-  "for_date": "Fri, 17 Jul 2026",
-  "for_date_iso": "2026-07-17",
+  "checked_on": "2026-07-21 02:26 IST",
+  "for_date": "Mon, 20 Jul 2026",
+  "for_date_iso": "2026-07-20",
   "total_roster": 22,
-  "missing_count": 12,
+  "missing_count": 14,
   "missing_names": [
+    "Archa Ullas",
+    "Anna Mary",
     "Gautham S",
+    "Gokul Nath",
     "Sreejith SL",
-    "Shilpa Sara",
     "Arun Mahadev",
     "Sneha S",
     "Bajan",
+    "Haripriya L",
     "Naveen PC",
     "Balavignesh P",
     "Kulwinder Singh",
     "Savitha Vasanthan",
-    "Jofia Joseph",
     "Seethal vargheese"
   ]
 }
