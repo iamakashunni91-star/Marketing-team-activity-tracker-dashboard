@@ -1,9 +1,9 @@
 {
-  "checked_on": "2026-07-21 21:37 IST",
-  "for_date": "Mon, 20 Jul 2026",
-  "for_date_iso": "2026-07-20",
+  "checked_on": "2026-07-22 02:21 IST",
+  "for_date": "Tue, 21 Jul 2026",
+  "for_date_iso": "2026-07-21",
   "total_roster": 22,
-  "missing_count": 11,
+  "missing_count": 15,
   "missing_names": [
     "Archa Ullas",
     "Anna Mary",
@@ -11,10 +11,14 @@
     "Gokul Nath",
     "Sreejith SL",
     "Arun Mahadev",
+    "Sneha S",
+    "Fanny Dorris",
     "Bajan",
     "Naveen PC",
+    "Balavignesh P",
     "Kulwinder Singh",
     "Savitha Vasanthan",
+    "Jofia Joseph",
     "Seethal vargheese"
   ]
 }
