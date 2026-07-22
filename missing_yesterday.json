@@ -1,11 +1,10 @@
 {
-  "checked_on": "2026-07-22 17:45 IST",
+  "checked_on": "2026-07-22 21:38 IST",
   "for_date": "Tue, 21 Jul 2026",
   "for_date_iso": "2026-07-21",
   "total_roster": 22,
-  "missing_count": 13,
+  "missing_count": 11,
   "missing_names": [
-    "Archa Ullas",
     "Anna Mary",
     "Gautham S",
     "Gokul Nath",
@@ -16,7 +15,6 @@
     "Balavignesh P",
     "Kulwinder Singh",
     "Savitha Vasanthan",
-    "Jofia Joseph",
     "Seethal vargheese"
   ]
 }
