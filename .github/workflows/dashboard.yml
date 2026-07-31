@@ -2,12 +2,12 @@ name: Update Dashboard
 
 on:
   schedule:
-    - cron: '0 * * * *'        # every hour, top of the hour (UTC) — dashboard refresh
-    - cron: '30 06 * * 1-5'    # 06:30 UTC = 12:00 PM IST, Mon–Fri — daily missing-updates check
+    - cron: '0 * * * *'        # every hour — dashboard refresh
+    - cron: '30 06 * * 1-5'    # 06:30 UTC = 12:00 PM IST, Mon–Fri — missing-updates email
   workflow_dispatch:           # manual "Run workflow" button
 
 permissions:
-  contents: write              # allow committing the updated HTML back
+  contents: write
 
 jobs:
   update-dashboard:
@@ -21,8 +21,16 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: pip install pandas openpyxl requests
+
+      - name: Set up Node (for StatiCrypt)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install StatiCrypt
+        run: npm install -g staticrypt
 
       - name: Run dashboard updater
         env:
@@ -30,18 +38,31 @@ jobs:
           REVENUE_SHAREPOINT_URL: ${{ secrets.REVENUE_SHAREPOINT_URL }}
         run: python dashboard.py
 
+      - name: Encrypt dashboard with StatiCrypt
+        env:
+          STATICRYPT_PASSWORD: ${{ secrets.STATICRYPT_PASSWORD }}
+        run: |
+          # dashboard.py wrote fresh data into dashboard_plain.html.
+          # Encrypt it into index.html (what GitHub Pages serves).
+          rm -rf staticrypt_out
+          staticrypt dashboard_plain.html \
+            --password "$STATICRYPT_PASSWORD" \
+            --short \
+            --template-title "Way Marketing - Business Impact Dashboard" \
+            -d staticrypt_out
+          mv staticrypt_out/dashboard_plain.html index.html
+          rm -rf staticrypt_out
+          echo "Encrypted dashboard_plain.html -> index.html"
+
       - name: Commit and push if changed
         run: |
           git config user.name "Dashboard Bot"
           git config user.email "actions@github.com"
-          git add index.html || true
-          git add missing_yesterday.json || true
+          git add index.html dashboard_plain.html missing_yesterday.json || true
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
             git commit -m "Auto-update dashboard $(date -u '+%Y-%m-%d %H:%M UTC')"
-            # Pull any manual/remote changes first, then push. Retry a few times
-            # in case someone edits the repo at the same time.
             for i in 1 2 3; do
               git pull --rebase --autostash origin main && git push && break
               echo "Push attempt $i failed, retrying..."
@@ -49,8 +70,6 @@ jobs:
             done
           fi
 
-      # ── Send the missing-updates email ──
-      # Fires on the 12 PM IST schedule, AND on a manual run (for testing).
       - name: Send missing-updates email
         if: ${{ github.event.schedule == '30 06 * * 1-5' || github.event_name == 'workflow_dispatch' }}
         run: python send_missing_email.py
