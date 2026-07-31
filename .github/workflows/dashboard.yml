@@ -26,7 +26,8 @@ jobs:
 
       - name: Run dashboard updater
         env:
-          SHAREPOINT_URL: ${{ secrets.SHAREPOINT_URL }}
+          SHAREPOINT_URL:         ${{ secrets.SHAREPOINT_URL }}
+          REVENUE_SHAREPOINT_URL: ${{ secrets.REVENUE_SHAREPOINT_URL }}
         run: python dashboard.py
 
       - name: Commit and push if changed
