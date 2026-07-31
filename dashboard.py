@@ -35,7 +35,7 @@ log = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════
 # CONFIG
 # ═══════════════════════════════════════════════════════════════════════
-DASHBOARD_HTML = "index.html"
+DASHBOARD_HTML = "dashboard_plain.html"
 SHEET_NAME = "Master activity matrix - June"
 DATE_START = "2026-06-01"
 DATE_END = None   # None = no upper limit (include future dates)
