@@ -218,7 +218,7 @@ KPI_BUCKETS = {
         ("meetings",   "Meetings",
          ["meeting", "all hands", "seo content team", "sync"]),
     ],
-    "Sreejith SL": [
+    "Sreejith S L": [
         ("gap",        "GAP Pages",
          ["gap static"]),
         ("way",        "Way Pages",
