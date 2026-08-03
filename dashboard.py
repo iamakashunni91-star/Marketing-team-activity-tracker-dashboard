@@ -719,8 +719,8 @@ def download_excel() -> Path:
 # ═══════════════════════════════════════════════════════════════════════
 # HTML UPDATE
 # ═══════════════════════════════════════════════════════════════════════
-def update_html(html_path: str, new_data: dict, snapshot: dict = None) -> bool:
-    """Rewrite the const T = {...}; and const SNAPSHOT = {...}; blocks."""
+def update_html(html_path: str, new_data: dict, raw: list = None, snapmeta: dict = None) -> bool:
+    """Rewrite the const T, const RAW and const SNAPMETA blocks."""
     path = Path(html_path)
     if not path.exists():
         raise FileNotFoundError(f"{html_path} not found in repo root.")
@@ -737,13 +737,19 @@ def update_html(html_path: str, new_data: dict, snapshot: dict = None) -> bool:
 
     html_updated = re.sub(pattern, new_const, html, flags=re.DOTALL)
 
-    # Embed snapshot data if present and a placeholder exists
-    if snapshot is not None:
-        snap_json = json.dumps(snapshot, ensure_ascii=False)
-        snap_const = f"const SNAPSHOT = {snap_json};"
-        snap_pattern = r'const SNAPSHOT = \{.*?\};'
-        if re.search(snap_pattern, html_updated, flags=re.DOTALL):
-            html_updated = re.sub(snap_pattern, snap_const, html_updated, flags=re.DOTALL)
+    # Embed the raw rows (const RAW = [...];) — snapshot is recomputed in-browser
+    if raw is not None:
+        raw_const = "const RAW = " + json.dumps(raw, ensure_ascii=False) + ";"
+        if re.search(r'const RAW = \[.*?\];', html_updated, flags=re.DOTALL):
+            html_updated = re.sub(r'const RAW = \[.*?\];', lambda m: raw_const,
+                                  html_updated, count=1, flags=re.DOTALL)
+
+    # Embed filter-independent snapshot metadata (const SNAPMETA = {...};)
+    if snapmeta is not None:
+        meta_const = "const SNAPMETA = " + json.dumps(snapmeta, ensure_ascii=False) + ";"
+        if re.search(r'const SNAPMETA = \{.*?\};', html_updated, flags=re.DOTALL):
+            html_updated = re.sub(r'const SNAPMETA = \{.*?\};', lambda m: meta_const,
+                                  html_updated, count=1, flags=re.DOTALL)
 
     ts = datetime.utcnow().strftime("%d %b %Y, %I:%M %p UTC")
     if "Last updated:" in html_updated:
@@ -935,134 +941,79 @@ def _mint_ramp(n):
     return cols
 
 
-def build_snapshot(df, revenue_path):
-    """Build the entire Executive Snapshot payload from the activity df + revenue file."""
-    from collections import defaultdict
-    import calendar
+def build_raw(df):
+    """Flatten the activity df into compact per-row records for the dashboard.
 
-    # Determine MTD window = latest month present in data
+    The Executive Snapshot is now recomputed in the browser for ANY selected
+    date range (MTD / month / custom), so every row it needs is embedded here
+    with team/vertical already normalized and impact/automation pre-classified.
+    Keys are short to keep the embedded payload small:
+      d  iso date            n  employee name        tm team (normalized)
+      v  vertical            m  work minutes         o  time-off minutes
+      rv revenue class       w  impact weight        au automation class
+      rt routine flag(0/1)   a  activity (<=120)     dl deliverable (<=200)
+      bi business impact (<=120)
+    """
     df = df.copy()
     df = df[~df['Employee name'].isin(EXCLUDED_FROM_DASHBOARD)]
-    max_date = df['Date'].max()
-    month_start = max_date.replace(day=1)
-    mdf = df[(df['Date'] >= month_start) & (df['Date'] <= max_date)]
+    df = df.dropna(subset=['Date'])
 
-    # Resources = distinct people logging this month
-    resources = mdf['Employee name'].nunique()
-    biz_days = len(set(d.date() for d in mdf['Date'] if d.weekday() < 5))
-    capacity = resources * biz_days * 8
-
-    vert_mins = defaultdict(int)
-    vert_team = defaultdict(lambda: defaultdict(int))
-    vtai = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {'mins':0,'weighted':0.0,'entries':[]})))
-    team_acts = defaultdict(lambda: defaultdict(lambda: {'mins':0,'weighted':0.0}))
-    rev_split = defaultdict(int)
-    auto_split = defaultdict(int)
-    time_off = 0
-    io_detail_map = defaultdict(lambda: defaultdict(int))
-    total_work = 0
-
-    for _, r in mdf.iterrows():
-        vertical = norm_vertical(r.get('Vertical '))
-        team = TEAM_NORM.get(str(r.get('Employee team','')).strip(), str(r.get('Employee team','')).strip())
-        activity = _clean(str(r.get('Activity','')))
-        deliverable = _clean(str(r.get('Work Output / Deliverable','')))[:300]
-        impact_txt = _clean(str(r.get('Business Outcome / Impact','')))[:150]
-        mins_raw = pd.to_numeric(r.get('Time Spent (in Mins)',0), errors='coerce')
+    out = []
+    for _, r in df.iterrows():
+        mins_raw = pd.to_numeric(r.get('Time Spent (in Mins)', 0), errors='coerce')
         mins = int(mins_raw) if pd.notna(mins_raw) else 0
-        toff = pd.to_numeric(r.get('Time off in Min ( Leaves taken)',0), errors='coerce')
-        time_off += int(toff) if pd.notna(toff) else 0
-        impact_bucket = r.get('Impact Bucket')
-        auto_pot = r.get('AI/Automation Potential')
+        toff = pd.to_numeric(r.get('Time off in Min ( Leaves taken)', 0), errors='coerce')
+        off = int(toff) if pd.notna(toff) else 0
+        if mins <= 0 and off <= 0:
+            continue
 
-        if mins > 0:
-            total_work += mins
-            vert_mins[vertical] += mins
-            vert_team[vertical][team] += mins
-            w = _impact_weight(impact_bucket)
-            slot = vtai[vertical][team][activity]
-            slot['mins'] += mins; slot['weighted'] += mins*w
-            if deliverable:
-                slot['entries'].append({'d':deliverable,'i':impact_txt,'m':mins,'date':r['Date'].strftime('%d %b')})
-            # team-level initiatives (exclude routine)
-            if team in ('SEO','Omnichannel','Local','B2B') and activity and not any(p in activity.lower() for p in INIT_EXCLUDE):
-                team_acts[team][activity]['mins'] += mins
-                team_acts[team][activity]['weighted'] += mins*w
-            # I&O detail
-            if vertical not in FIXED_VERTICALS:
-                io_detail_map[vertical][activity] += mins
-            # revenue / automation
-            rv = _norm_revenue(impact_bucket)
-            if rv: rev_split[rv] += mins
-            au = _norm_auto(auto_pot)
-            if au: auto_split[au] += mins
+        name = normalize_name(r['Employee name'])
+        team = TEAM_NORM.get(str(r.get('Employee team', '')).strip(),
+                             str(r.get('Employee team', '')).strip())
+        vertical = norm_vertical(r.get('Vertical '))
+        activity = _clean(str(r.get('Activity', '')))[:120]
+        deliverable = _clean(str(r.get('Work Output / Deliverable', '')))[:200]
+        bimpact = _clean(str(r.get('Business Outcome / Impact', '')))[:120]
+        ib = r.get('Impact Bucket')
 
-    # Effort distribution: fixed verticals + Internal & Operational
-    dist = defaultdict(int)
-    for v, m in vert_mins.items():
-        if v in FIXED_VERTICALS: dist[v] += m
-        else: dist['Internal & Operational'] += m
-    verts_sorted = sorted(dist.items(), key=lambda x:-x[1])
-    main_labels = [v for v,_ in verts_sorted]
-    main_data = [round(m/60,1) for _,m in verts_sorted]
-    main_colors = _mint_ramp(len(main_labels))
+        out.append({
+            'd': iso_date(r['Date']),
+            'n': name,
+            'tm': team,
+            'v': vertical,
+            'm': mins,
+            'o': off,
+            'rv': _norm_revenue(ib) or '',
+            'w': round(_impact_weight(ib), 2),
+            'au': _norm_auto(r.get('AI/Automation Potential')) or '',
+            'rt': 1 if any(p in activity.lower() for p in INIT_EXCLUDE) else 0,
+            'a': activity,
+            'dl': deliverable,
+            'bi': bimpact,
+        })
+    return out
 
-    # Table (descending, I&O pinned bottom)
-    tbl = []
-    for v, m in verts_sorted:
-        if v == 'Internal & Operational': continue
-        tbl.append({'v':v,'hrs':round(m/60,1),'pct':round(m/total_work*100,1) if total_work else 0,'io':False})
-    io_hrs = dist.get('Internal & Operational',0)
-    tbl.append({'v':'Internal & Operational','hrs':round(io_hrs/60,1),
-                'pct':round(io_hrs/total_work*100,1) if total_work else 0,'io':True})
 
-    io_detail = []
-    for label, acts in sorted(io_detail_map.items(), key=lambda x:-sum(x[1].values())):
-        items = sorted(acts.items(), key=lambda x:-x[1])
-        io_detail.append({'label':label,'hrs':round(sum(acts.values())/60,1),
-            'activities':[{'activity':a[:90],'hrs':round(mm/60,1)} for a,mm in items]})
+def build_snapmeta(revenue_path):
+    """Filter-independent snapshot metadata embedded once.
 
-    # Per-vertical per-team initiatives (top 5, with summaries)
-    def make_summary(entries):
-        top = sorted(entries, key=lambda e:-e['m'])[:3]
-        return [{'text':e['d'],'impact':e['i'],'hrs':round(e['m']/60,1),'date':e['date']} for e in top]
-    vti = {}
-    for vert, teams in vtai.items():
-        vti[vert] = {}
-        for team, acts in teams.items():
-            ranked = sorted(acts.items(), key=lambda x:-x[1]['weighted'])[:5]
-            inits = [{'activity':a[:80],'hrs':round(s['mins']/60,1),'summary':make_summary(s['entries'])}
-                     for a,s in ranked if s['mins']>0]
-            if inits: vti[vert][team] = inits
-
-    # Top 3 key initiatives per team (impact-weighted, routine excluded)
-    top3 = {}
-    tmap = {'SEO':'SEO','Omnichannel':'Omnichannel Marketing','Local':'Local Marketing','B2B':'B2B Marketing'}
-    for tk, tlabel in tmap.items():
-        ranked = sorted(team_acts[tk].items(), key=lambda x:-x[1]['weighted'])[:3]
-        top3[tlabel] = [{'activity':a[:75],'hrs':round(s['mins']/60,1)} for a,s in ranked if s['mins']>0]
-
-    # Pies
-    rev_pie = {'labels':['Revenue','Non-Revenue','Other'],
-        'data':[round(rev_split.get('Revenue',0)/60,1),round(rev_split.get('Non-Revenue',0)/60,1),round(rev_split.get('Other',0)/60,1)],
-        'colors':['#083d30','#1a9d7f','#a9f7e4']}
-    auto_items = sorted([('High',auto_split.get('High',0)),('Partial',auto_split.get('Partial',0)),('Minimal',auto_split.get('Minimal',0))], key=lambda x:-x[1])
-    auto_pie = {'labels':[k for k,_ in auto_items],'data':[round(v/60,1) for _,v in auto_items],'colors':_mint_ramp(3)}
-
+    Holds the 24-month AOP revenue charts (refreshed from the revenue file on
+    every builder run — so weekly revenue-file updates flow straight through),
+    plus the static maps the browser needs to render the recomputed snapshot.
+    """
     charts = extract_aop(revenue_path)
     months24 = [f"{m} '25" for m in ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']] + \
                [f"{m} '26" for m in ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']]
-
     return {
-        'meta':{'res':resources,'biz':biz_days,'cap':capacity,'act':round(total_work/60),
-                'util':round(total_work/60/capacity*100,1) if capacity else 0},
-        'months24':months24,'charts':charts,
-        'main':{'labels':main_labels,'data':main_data,'colors':main_colors},
-        'vti':vti,'vert_charts':{'Airport Parking':['ap_seo','ap_email'],'City Parking':['cp_seo','cp_email']},
-        'top5':top3, 'rev_pie':rev_pie,'auto_pie':auto_pie,
-        'team_colors':{'SEO':'#0BEFBA','B2B':'#F4C542','Omnichannel':'#14b8a6','Cross Functional':'#8FA89A','Local':'#e6a817','Unknown':'#6B8577'},
-        'team_label':{'SEO':'Organic SEO','Omnichannel':'Omnichannel','Local':'Local Marketing','B2B':'B2B','Cross Functional':'Cross Functional'},
-        'vert_table':tbl,'time_off_hrs':round(time_off/60,1),'io_detail':io_detail,
+        'charts': charts,
+        'months24': months24,
+        'vert_charts': {'Airport Parking': ['ap_seo', 'ap_email'],
+                        'City Parking': ['cp_seo', 'cp_email']},
+        'fixed_verticals': FIXED_VERTICALS,
+        'team_colors': {'SEO': '#0BEFBA', 'B2B': '#F4C542', 'Omnichannel': '#14b8a6',
+                        'Cross Functional': '#8FA89A', 'Local': '#e6a817', 'Unknown': '#6B8577'},
+        'team_label': {'SEO': 'Organic SEO', 'Omnichannel': 'Omnichannel',
+                       'Local': 'Local Marketing', 'B2B': 'B2B', 'Cross Functional': 'Cross Functional'},
     }
 
 
@@ -1104,16 +1055,18 @@ def main():
 
         task_data = build_task_data(df)
 
-        # Executive Snapshot — download revenue file + build snapshot payload
+        # Executive Snapshot data — raw rows (recomputed in-browser for any
+        # date range) + filter-independent metadata (AOP charts, maps).
+        raw = build_raw(df)
         rev_path = None
-        snapshot = {}
+        snapmeta = {}
         try:
             rev_path = download_revenue_excel()
-            snapshot = build_snapshot(df, rev_path)
-            log.info(f"Snapshot built: {len(snapshot.get('main',{}).get('labels',[]))} verticals, "
-                     f"{len(snapshot.get('charts',{}))} AOP charts")
+            snapmeta = build_snapmeta(rev_path)
+            log.info(f"Snapshot data: {len(raw)} raw rows, "
+                     f"{len(snapmeta.get('charts',{}))} AOP charts")
         except Exception as e:
-            log.warning(f"Snapshot build failed (dashboard still updates): {e}")
+            log.warning(f"Snapmeta build failed (dashboard still updates): {e}")
         finally:
             if rev_path and rev_path.exists():
                 rev_path.unlink()
@@ -1124,7 +1077,7 @@ def main():
         log.info(f"Built {len(task_data)} KPI keys, {total_tasks} task entries, "
                  f"{total_mins:,} total mins")
 
-        changed = update_html(DASHBOARD_HTML, task_data, snapshot)
+        changed = update_html(DASHBOARD_HTML, task_data, raw, snapmeta)
         if changed:
             log.info("index.html updated — changes will be committed")
         else:
