@@ -1,12 +1,11 @@
 {
-  "checked_on": "2026-08-11 14:36 IST",
+  "checked_on": "2026-08-11 16:26 IST",
   "for_date": "Mon, 10 Aug 2026",
   "for_date_iso": "2026-08-10",
   "total_roster": 22,
-  "missing_count": 14,
+  "missing_count": 12,
   "missing_names": [
     "Archa Ullas",
-    "Anna Mary",
     "Gokul Nath",
     "Arun Mahadev",
     "Sneha S",
@@ -16,7 +15,6 @@
     "Balavignesh P",
     "Kulwinder Singh",
     "Savitha Vasanthan",
-    "Devika Sheeja",
     "Jofia Joseph",
     "Seethal vargheese"
   ]
