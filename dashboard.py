@@ -557,7 +557,17 @@ KPI_BUCKETS = {
 def _clean(s):
     if not isinstance(s, str):
         return s
-    return "".join(c if c >= " " else " " for c in s).strip()
+    s = "".join(c if c >= " " else " " for c in s).strip()
+    # Defensive: strip stray backslashes from free-text fields. A trailing
+    # backslash is correctly escaped by json.dumps() on our side, but if
+    # anything downstream (encryption tooling, manual edits, copy/paste)
+    # ever mishandles that escape, a lone backslash next to a quote can
+    # break the embedded JSON and blank the whole dashboard. Backslashes
+    # have no legitimate meaning in activity/deliverable text, so we
+    # remove them outright rather than rely on correct escaping everywhere
+    # downstream.
+    s = s.replace("\\", "")
+    return s
 
 
 def fmt_date(d):
