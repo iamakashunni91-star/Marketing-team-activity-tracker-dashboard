@@ -1,9 +1,9 @@
 {
-  "checked_on": "2026-09-01 16:30 IST",
+  "checked_on": "2026-09-01 16:49 IST",
   "for_date": "Mon, 31 Aug 2026",
   "for_date_iso": "2026-08-31",
   "total_roster": 22,
-  "missing_count": 9,
+  "missing_count": 8,
   "missing_names": [
     "Archa Ullas",
     "Bajan",
@@ -12,7 +12,6 @@
     "Savitha Vasanthan",
     "Priya Kumari",
     "Devika Sheeja",
-    "Jofia Joseph",
-    "Seethal vargheese"
+    "Jofia Joseph"
   ]
 }
