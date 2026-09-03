@@ -1,10 +1,13 @@
 {
-  "checked_on": "2026-09-03 23:58 IST",
-  "for_date": "Wed, 02 Sep 2026",
-  "for_date_iso": "2026-09-02",
+  "checked_on": "2026-09-04 03:07 IST",
+  "for_date": "Thu, 03 Sep 2026",
+  "for_date_iso": "2026-09-03",
   "total_roster": 22,
-  "missing_count": 13,
+  "missing_count": 16,
   "missing_names": [
+    "Archa Ullas",
+    "Anna Mary",
+    "Gautham S",
     "Gokul Nath",
     "Sreejith SL",
     "Arun Mahadev",
