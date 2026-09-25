@@ -1,9 +1,9 @@
 {
-  "checked_on": "2026-09-25 13:03 IST",
+  "checked_on": "2026-09-25 17:33 IST",
   "for_date": "Thu, 24 Sep 2026",
   "for_date_iso": "2026-09-24",
   "total_roster": 22,
-  "missing_count": 10,
+  "missing_count": 8,
   "missing_names": [
     "Archa Ullas",
     "Anna Mary",
@@ -11,9 +11,7 @@
     "Arun Mahadev",
     "Bajan",
     "Naveen PC",
-    "Arun Nath J",
     "Kulwinder Singh",
-    "Savitha Vasanthan",
-    "Jofia Joseph"
+    "Savitha Vasanthan"
   ]
 }
