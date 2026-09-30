@@ -1,16 +1,19 @@
 {
-  "checked_on": "2026-09-30 21:18 IST",
-  "for_date": "Tue, 29 Sep 2026",
-  "for_date_iso": "2026-09-29",
+  "checked_on": "2026-10-01 02:13 IST",
+  "for_date": "Wed, 30 Sep 2026",
+  "for_date_iso": "2026-09-30",
   "total_roster": 22,
-  "missing_count": 7,
+  "missing_count": 10,
   "missing_names": [
+    "Sreejith SL",
     "Arun Mahadev",
+    "Rajeswari Menon",
     "Bajan",
     "Haripriya L",
     "Naveen PC",
     "Kulwinder Singh",
     "Savitha Vasanthan",
+    "Priya Kumari",
     "Jofia Joseph"
   ]
 }
