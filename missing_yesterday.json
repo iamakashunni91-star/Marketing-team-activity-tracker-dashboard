@@ -1,13 +1,22 @@
 {
-  "checked_on": "2026-10-01 20:50 IST",
-  "for_date": "Wed, 30 Sep 2026",
-  "for_date_iso": "2026-09-30",
+  "checked_on": "2026-10-02 02:27 IST",
+  "for_date": "Thu, 01 Oct 2026",
+  "for_date_iso": "2026-10-01",
   "total_roster": 22,
-  "missing_count": 4,
+  "missing_count": 13,
   "missing_names": [
+    "Archa Ullas",
+    "Sreejith SL",
+    "Arun Mahadev",
+    "Sneha S",
     "Bajan",
+    "Haripriya L",
     "Naveen PC",
+    "Balavignesh P",
     "Kulwinder Singh",
-    "Savitha Vasanthan"
+    "Savitha Vasanthan",
+    "Priya Kumari",
+    "Devika Sheeja",
+    "Jofia Joseph"
   ]
 }
