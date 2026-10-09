@@ -56,6 +56,7 @@ ROSTER = {
     "Haripriya L":       {"tab": "seo",   "subteam": "SEO Technical",     "prefix": "Haripriya"},
     "Naveen PC":         {"tab": "seo",   "subteam": "SEO Technical",     "prefix": "Naveen"},
     "Arun Nath J":       {"tab": "seo",   "subteam": "SEO Technical",     "prefix": "ArunNath"},
+    "Varun Mohandas":    {"tab": "seo",   "subteam": "SEO Content",       "prefix": "Varun"},
     # SEO Content
     "Gautham S":         {"tab": "seo",   "subteam": "SEO Content",       "prefix": "Gautham"},
     "Gokul Nath":        {"tab": "seo",   "subteam": "SEO Content",       "prefix": "Gokul"},
@@ -69,14 +70,11 @@ ROSTER = {
     # Omnichannel Email
     "Ajay Singh":        {"tab": "omni",  "subteam": "Omnichannel Email", "prefix": "Ajay"},
     "Kulwinder Singh":   {"tab": "omni",  "subteam": "Omnichannel Email", "prefix": "Kulwinder"},
-    "Savitha Vasanthan": {"tab": "omni",  "subteam": "Omnichannel Email", "prefix": "Savitha"},
     "Shivakumar patil":  {"tab": "omni",  "subteam": "Omnichannel Email", "prefix": "Shivakumar"},
     # Omnichannel Content
     "Anna Mary":         {"tab": "omni",  "subteam": "Omnichannel Content","prefix": "Anna"},
     "Archa Ullas":       {"tab": "omni",  "subteam": "Omnichannel Content","prefix": "Archa"},
     # Omnichannel Social
-    "Devika Sheeja":     {"tab": "omni",  "subteam": "Omnichannel Social","prefix": "Devika"},
-    "Jofia Joseph":      {"tab": "omni",  "subteam": "Omnichannel Social","prefix": "Jofia"},
 
     # ═══ Local Marketing tab ═══
     "Priya Kumari":      {"tab": "local", "subteam": "Local Marketing",   "prefix": "Priya"},
@@ -102,14 +100,19 @@ ROSTER = {
 # Names in the tracker to exclude from the dashboard entirely.
 EXCLUDED_FROM_DASHBOARD = {"Naitik vyas"}
 
+# Rolled-off team members — removed from the live roster/email, but their
+# history BEFORE the cutoff date is preserved in the Executive Snapshot.
+ROLLED_OFF = {"Savitha Vasanthan", "Jofia Joseph", "Devika Sheeja"}
+ROLLED_OFF_CUTOFF = "2026-10-01"
+
 # Roster used ONLY for the daily 12 PM missing-updates email.
 # Deliberately excludes Akash & Kiran per requirements.
 EMAIL_ROSTER = [
     "Archa Ullas", "Anna Mary", "Gautham S", "Gokul Nath", "Sreejith SL",
     "Shilpa Sara", "Arun Mahadev", "Rajeswari Menon", "Sneha S", "Fanny Dorris",
     "Bajan", "Haripriya L", "Naveen PC", "Arun Nath J", "Balavignesh P",
-    "Kulwinder Singh", "Ajay Singh", "Savitha Vasanthan", "Priya Kumari",
-    "Devika Sheeja", "Jofia Joseph", "Seethal vargheese",
+    "Kulwinder Singh", "Ajay Singh", "Priya Kumari", "Seethal vargheese",
+    "Varun Mohandas",
 ]
 
 
@@ -247,6 +250,27 @@ KPI_BUCKETS = {
          ["ux copy", "ux content"]),
     ],
 
+    "Varun Mohandas": [
+        ("keyword",    "Keyword Research",
+         ["keyword research", "keyword", "keyword ranking", "keyword position",
+          "serp", "search volume", "kw ", "ranking analysis"]),
+        ("audit",      "Technical Audits",
+         ["technical seo", "audit", "crawl", "screaming frog", "schema",
+          "sitemap", "indexation", "index status", "core web vital",
+          "page speed", "redirect", "canonical", "robots", "source code",
+          "llms.txt"]),
+        ("content",    "Content & On-page",
+         ["on-page", "on page", "meta title", "meta description", "meta tag",
+          "internal linking", "interlink", "landing page", "blog",
+          "content optimization", "content", "url optimization", "url"]),
+        ("analytics",  "Analytics & Reporting",
+         ["analytics", "ga4", "gsc", "search console", "reporting", "report",
+          "dashboard", "traffic", "projection", "forecast", "performance",
+          "competitive analysis", "competitor", "semrush", "ahrefs"]),
+        ("meetings",   "Meetings & Standups",
+         ["standup", "stand-up", "meeting", "sync", "all hands", "call",
+          "discussion", "review", "induction", "walkthrough"]),
+    ],
     # ─── OMNICHANNEL MARKETING ───────────────────────────────────────
     "Ajay Singh": [
         ("klaviyo",    "Klaviyo Campaigns",
@@ -278,11 +302,6 @@ KPI_BUCKETS = {
          ["template", "review call", "cfo review", "review report",
           "content strategy", "ideation", "flow trigger", "flow ideation"]),
     ],
-    "Savitha Vasanthan": [
-        ("templates",  "Template Creation & Scheduling",
-         ["template", "schedule", "gap", "airport", "cruise", "cap",
-          "find", "alax"]),
-    ],
     "Anna Mary": [
         ("omni_email", "Omnichannel Email Copy",
          ["omnichannel", "omni channel", "omni email",
@@ -307,48 +326,6 @@ KPI_BUCKETS = {
         ("meetings",   "Meetings",
          ["meeting", "email team weekly", "omnichannel weekly", "all hands",
           "leadership tracker", "intake form", "meta ad workflow"]),
-    ],
-    "Devika Sheeja": [
-        ("posts",      "Post Creation",
-         ["post", "carousel", "carousal", "static", "gap post", "cruise post",
-          "fifa post", "fifa static", "nba", "diy", "tier list", "rage list",
-          "one app", "grandma", "sign", "budgeting", "no convience",
-          "shuttle", "ratings parking", "gas"]),
-        ("video",      "Video Editing",
-         ["video", "reel", "shoot", "footage", "shot life", "life at way",
-          "father's day", "fathers day", "fifa video", "youtube", "yt "]),
-        ("stories",    "Stories & TV",
-         ["story", "tv updation", "life at way story", "cruise creative",
-          "tow truck", "concert"]),
-        ("templates",  "Templates & Updates",
-         ["birthday", "anniversary", "bday", "template", "spotlight",
-          "jira updation"]),
-        ("meetings",   "Meetings & Connects",
-         ["meeting", "connect with", "meet with", "discussion", "sync",
-          "all hands", "wayfarer", "survey", "seat"]),
-    ],
-    "Jofia Joseph": [
-        ("video",      "Video/Reel Production",
-         ["video", "reel", "shoot", "footage", "shot life", "life at way",
-          "father's day", "fathers day", "father"]),
-        ("posts",      "Post Creation & Editing",
-         ["post creation", "post", "carousel", "carousal", "static",
-          "way post", "gap ", "cruise", "fifa", "budget", "diy",
-          "shuttle", "take 5", "star review", "wayfarer", "auto repair"]),
-        ("planning",   "Planning & Ideation",
-         ["ideation", "ideated", "3 month plan", "one month plan",
-          "planning", "researching", "researched", "recaliberation",
-          "extension", "unachievable", "briefing", "brief", "catchup",
-          "devika"]),
-        ("calendar",   "Content Calendar",
-         ["content calendar", "calendar", "utm"]),
-        ("metrics",    "Metrics & Analytics",
-         ["metric", "mom/yoy", "mom", "yoy", "comment", "analysis",
-          "check comment", "dec-june", "previous post"]),
-        ("meetings",   "Meetings",
-         ["meeting", "meet with", "connect with", "sync", "all hands",
-          "wayfarer", "timesheet", "time sheet", "tracker", "jira",
-          "schedule", "posted", "discussion"]),
     ],
 
     # ─── LOCAL MARKETING ─────────────────────────────────────────────
@@ -1055,6 +1032,11 @@ def main():
         df = df[~df['Employee name'].isin(EXCLUDED_FROM_DASHBOARD)]
         log.info(f"Date filter from {DATE_START} (no upper cap): "
                  f"{before} → {len(df)} rows")
+        # Rolled-off members: keep history before the cutoff, drop any
+        # activity logged on/after their departure so current-period views
+        # and running totals exclude them.
+        df = df[~(df['Employee name'].isin(ROLLED_OFF) & (df['Date'] >= ROLLED_OFF_CUTOFF))]
+        log.info(f"After rolled-off cutoff ({ROLLED_OFF_CUTOFF}): {len(df)} rows")
 
         df = df.drop_duplicates(
             subset=['Employee name', 'Date', 'Activity',
