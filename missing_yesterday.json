@@ -1,26 +1,23 @@
 {
-  "checked_on": "2026-10-09 07:30 IST",
+  "checked_on": "2026-10-09 12:41 IST",
   "for_date": "Thu, 08 Oct 2026",
   "for_date_iso": "2026-10-08",
-  "total_roster": 22,
-  "missing_count": 17,
+  "total_roster": 20,
+  "missing_count": 14,
   "missing_names": [
     "Gautham S",
     "Gokul Nath",
     "Sreejith SL",
     "Arun Mahadev",
     "Rajeswari Menon",
-    "Sneha S",
     "Bajan",
     "Haripriya L",
     "Naveen PC",
     "Arun Nath J",
     "Balavignesh P",
     "Kulwinder Singh",
-    "Savitha Vasanthan",
     "Priya Kumari",
-    "Devika Sheeja",
-    "Jofia Joseph",
-    "Seethal vargheese"
+    "Seethal vargheese",
+    "Varun Mohandas"
   ]
 }
