@@ -1,22 +1,19 @@
 {
-  "checked_on": "2026-10-09 14:25 IST",
+  "checked_on": "2026-10-09 19:04 IST",
   "for_date": "Thu, 08 Oct 2026",
   "for_date_iso": "2026-10-08",
   "total_roster": 20,
-  "missing_count": 13,
+  "missing_count": 10,
   "missing_names": [
     "Gautham S",
     "Gokul Nath",
     "Sreejith SL",
     "Arun Mahadev",
     "Bajan",
-    "Haripriya L",
     "Naveen PC",
-    "Arun Nath J",
     "Balavignesh P",
     "Kulwinder Singh",
     "Priya Kumari",
-    "Seethal vargheese",
     "Varun Mohandas"
   ]
 }
