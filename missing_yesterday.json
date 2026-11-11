@@ -1,9 +1,9 @@
 {
-  "checked_on": "2026-11-11 16:09 IST",
+  "checked_on": "2026-11-11 20:08 IST",
   "for_date": "Tue, 10 Nov 2026",
   "for_date_iso": "2026-11-10",
   "total_roster": 20,
-  "missing_count": 13,
+  "missing_count": 12,
   "missing_names": [
     "Anna Mary",
     "Sreejith SL",
@@ -16,7 +16,6 @@
     "Kulwinder Singh",
     "Ajay Singh",
     "Priya Kumari",
-    "Seethal vargheese",
-    "Varun Mohandas"
+    "Seethal vargheese"
   ]
 }
