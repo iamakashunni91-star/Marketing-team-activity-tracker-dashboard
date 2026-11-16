@@ -1,23 +1,26 @@
 {
-  "checked_on": "2026-11-14 22:26 IST",
-  "for_date": "Fri, 13 Nov 2026",
-  "for_date_iso": "2026-11-13",
+  "checked_on": "2026-11-17 01:45 IST",
+  "for_date": "Mon, 16 Nov 2026",
+  "for_date_iso": "2026-11-16",
   "total_roster": 20,
-  "missing_count": 14,
+  "missing_count": 17,
   "missing_names": [
     "Archa Ullas",
     "Anna Mary",
-    "Gautham S",
     "Sreejith SL",
     "Arun Mahadev",
     "Rajeswari Menon",
     "Sneha S",
+    "Fanny Dorris",
     "Bajan",
+    "Haripriya L",
     "Naveen PC",
     "Arun Nath J",
+    "Balavignesh P",
     "Kulwinder Singh",
     "Ajay Singh",
     "Priya Kumari",
-    "Seethal vargheese"
+    "Seethal vargheese",
+    "Varun Mohandas"
   ]
 }
